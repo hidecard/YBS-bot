@@ -1,4 +1,3 @@
-import fetch from "node-fetch";
 import { json } from "micro"; // JSON parser for Vercel
 
 const BOT_TOKEN = "8421330750:AAFqmjmoDeGpzJ9mA7OQw10u1665mfS1W08";
@@ -8,7 +7,7 @@ const SHEET_CSV =
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(200).send("OK");
 
-  const update = await json(req); // <-- parse Telegram JSON
+  const update = await json(req); // parse Telegram JSON
   const msg = update.message;
   const chatId = msg?.chat?.id;
   let text = msg?.text || "";
@@ -124,7 +123,7 @@ or
 // ================= HELPERS =================
 async function loadSheet() {
   const tsv = await fetch(SHEET_CSV).then(r => r.text());
-  return tsv.split("\n").map(r => r.split("\t")); // <-- TSV safe
+  return tsv.split("\n").map(r => r.split("\t")); // TSV safe
 }
 
 function normalize(text = "") {
