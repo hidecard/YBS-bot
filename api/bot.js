@@ -1,10 +1,12 @@
-// Vercel + Node.js 18+ supports native fetch, no need for node-fetch
-import { json } from "micro"; // parse JSON body
+// api/bot.js
+import fetch from "node-fetch";
+import { json } from "micro"; // For Vercel parsing
 
 const BOT_TOKEN = "8421330750:AAFqmjmoDeGpzJ9mA7OQw10u1665mfS1W08";
 const SHEET_CSV =
   "https://docs.google.com/spreadsheets/d/1nyKuHyNzCh1jalUnrN_TVYRYvNptYklY6MAedLw5Lwk/export?format=tsv";
 
+// ---------- TELEGRAM HANDLER ----------
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(200).send("OK");
 
@@ -12,6 +14,8 @@ export default async function handler(req, res) {
   const msg = update.message;
   const chatId = msg?.chat?.id;
   let text = msg?.text || "";
+
+  if (!chatId) return res.end();
 
   // ---------- Slash Commands ----------
   if (text === "/help") {
@@ -46,6 +50,7 @@ or
     return res.end();
   }
 
+  // ---------- Route Search ----------
   if (!text.includes("to")) {
     await send(chatId, "❌ Format မှားပါတယ်\nဥပမာ: ဆူးလေ to လှည်းတန်း");
     return res.end();
@@ -56,13 +61,8 @@ or
   const to = normalize(toRaw);
 
   const rows = await loadSheet();
-
-  const fromStops = rows.filter(
-    (r) => normalize(r.name_en) === from || normalize(r.name_mm) === from
-  );
-  const toStops = rows.filter(
-    (r) => normalize(r.name_en) === to || normalize(r.name_mm) === to
-  );
+  const fromStops = rows.filter((r) => fuzzyMatch(r.name_mm, from));
+  const toStops = rows.filter((r) => fuzzyMatch(r.name_mm, to));
 
   let reply = `📍 ${fromRaw.trim()} ➜ ${toRaw.trim()}\n\n`;
 
@@ -70,8 +70,7 @@ or
   const direct = [];
   for (const f of fromStops) {
     for (const t of toStops) {
-      if (f.service_name === t.service_name && Number(f.sequence) < Number(t.sequence))
-        direct.push(f);
+      if (f.service_name === t.service_name && f.sequence < t.sequence) direct.push(f);
     }
   }
 
@@ -88,11 +87,10 @@ or
   const transfers = [];
   for (const f of fromStops) {
     for (const mid of rows) {
-      if (mid.service_name !== f.service_name) continue;
-      if (Number(mid.sequence) <= Number(f.sequence)) continue;
+      if (mid.service_name !== f.service_name || mid.sequence <= f.sequence) continue;
 
       for (const t of toStops) {
-        if (mid.bus_stop_id === t.bus_stop_id && mid.service_name !== t.service_name && Number(mid.sequence) < Number(t.sequence)) {
+        if (mid.bus_stop_id === t.bus_stop_id && mid.service_name !== t.service_name && mid.sequence < t.sequence) {
           transfers.push({
             busA: f.service_name,
             busB: t.service_name,
@@ -119,33 +117,34 @@ or
 }
 
 // ================= HELPERS =================
-
 async function loadSheet() {
   const tsv = await fetch(SHEET_CSV).then((r) => r.text());
-  const rows = tsv
-    .split("\n")
-    .filter((r) => r.trim())
-    .map((r) => {
-      const [
-        service_name,
-        sequence,
-        bus_stop_id,
-        name_en,
-        name_mm,
-        road_en,
-        road_mm,
-        township_en,
-        township_mm,
-        lat,
-        lng,
-      ] = r.split("\t");
-      return { service_name, sequence, bus_stop_id, name_en, name_mm, road_en, road_mm, township_en, township_mm, lat, lng };
+  const lines = tsv.split("\n");
+  const header = lines[0].split("\t");
+
+  return lines
+    .slice(1)
+    .map((line) => {
+      const cols = line.split("\t");
+      const obj = {};
+      header.forEach((h, i) => (obj[h] = cols[i]));
+      obj.sequence = Number(obj.sequence);
+      obj.lat = Number(obj.lat);
+      obj.lng = Number(obj.lng);
+      return obj;
     });
-  return rows;
 }
 
 function normalize(text = "") {
-  return text.replace(/ဈေး|မှတ်တိုင်/g, "").replace(/\s/g, "").toLowerCase().trim();
+  return text.replace(/\s/g, "").toLowerCase().trim();
+}
+
+// Simple fuzzy match for Burmese stop names
+function fuzzyMatch(a, b) {
+  if (!a || !b) return false;
+  a = normalize(a);
+  b = normalize(b);
+  return a.includes(b) || b.includes(a);
 }
 
 function mapLink(lat, lng) {
@@ -165,8 +164,8 @@ function distance(lat1, lon1, lat2, lon2) {
 }
 
 function nearestStop(lat, lng, rows) {
-  let min = Infinity,
-    nearest = null;
+  let min = Infinity;
+  let nearest = null;
   for (const r of rows) {
     const d = distance(lat, lng, r.lat, r.lng);
     if (d < min) {
