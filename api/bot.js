@@ -1,4 +1,5 @@
-import { json } from "micro"; // JSON parser for Vercel
+// Vercel + Node.js 18+ supports native fetch, no need for node-fetch
+import { json } from "micro"; // parse JSON body
 
 const BOT_TOKEN = "8421330750:AAFqmjmoDeGpzJ9mA7OQw10u1665mfS1W08";
 const SHEET_CSV =
@@ -7,7 +8,7 @@ const SHEET_CSV =
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(200).send("OK");
 
-  const update = await json(req); // parse Telegram JSON
+  const update = await json(req);
   const msg = update.message;
   const chatId = msg?.chat?.id;
   let text = msg?.text || "";
@@ -37,9 +38,9 @@ or
     const stop = nearestStop(latitude, longitude, rows);
     await send(
       chatId,
-      `📍 Nearest Stop\n🚌 ${stop[3] || stop[4]}\n🗺 ${mapLink(
-        stop[9],
-        stop[10]
+      `📍 Nearest Stop\n🚌 ${stop.name_mm || stop.name_en}\n🗺 ${mapLink(
+        stop.lat,
+        stop.lng
       )}`
     );
     return res.end();
@@ -55,14 +56,13 @@ or
   const to = normalize(toRaw);
 
   const rows = await loadSheet();
-  const fromStops = [];
-  const toStops = [];
 
-  for (let i = 1; i < rows.length; i++) {
-    const r = rows[i];
-    if (normalize(r[3]) === from || normalize(r[4]) === from) fromStops.push(r);
-    if (normalize(r[3]) === to || normalize(r[4]) === to) toStops.push(r);
-  }
+  const fromStops = rows.filter(
+    (r) => normalize(r.name_en) === from || normalize(r.name_mm) === from
+  );
+  const toStops = rows.filter(
+    (r) => normalize(r.name_en) === to || normalize(r.name_mm) === to
+  );
 
   let reply = `📍 ${fromRaw.trim()} ➜ ${toRaw.trim()}\n\n`;
 
@@ -70,14 +70,15 @@ or
   const direct = [];
   for (const f of fromStops) {
     for (const t of toStops) {
-      if (f[0] === t[0] && Number(f[1]) < Number(t[1])) direct.push(f);
+      if (f.service_name === t.service_name && Number(f.sequence) < Number(t.sequence))
+        direct.push(f);
     }
   }
 
   if (direct.length) {
     reply += "✅ တစ်ဆင့်တည်း\n";
-    direct.forEach(d => {
-      reply += `🚌 Bus ${d[0]}\n🗺 ${mapLink(d[9], d[10])}\n`;
+    direct.forEach((d) => {
+      reply += `🚌 Bus ${d.service_name}\n🗺 ${mapLink(d.lat, d.lng)}\n`;
     });
     await send(chatId, reply);
     return res.end();
@@ -87,17 +88,17 @@ or
   const transfers = [];
   for (const f of fromStops) {
     for (const mid of rows) {
-      if (mid[0] !== f[0]) continue;
-      if (Number(mid[1]) <= Number(f[1])) continue;
+      if (mid.service_name !== f.service_name) continue;
+      if (Number(mid.sequence) <= Number(f.sequence)) continue;
 
       for (const t of toStops) {
-        if (mid[2] === t[2] && mid[0] !== t[0] && Number(mid[1]) < Number(t[1])) {
+        if (mid.bus_stop_id === t.bus_stop_id && mid.service_name !== t.service_name && Number(mid.sequence) < Number(t.sequence)) {
           transfers.push({
-            busA: f[0],
-            busB: t[0],
-            stop: mid[3] || mid[4],
-            lat: mid[9],
-            lng: mid[10],
+            busA: f.service_name,
+            busB: t.service_name,
+            stop: mid.name_mm || mid.name_en,
+            lat: mid.lat,
+            lng: mid.lng,
           });
         }
       }
@@ -108,11 +109,8 @@ or
     reply += "❌ Route မတွေ့ပါ";
   } else {
     reply += "🔁 နှစ်ဆင့်သွားရပါမယ်\n";
-    transfers.forEach(t => {
-      reply += `🚌 Bus ${t.busA} ➜ Bus ${t.busB}\n📌 Transfer: ${t.stop}\n🗺 ${mapLink(
-        t.lat,
-        t.lng
-      )}\n\n`;
+    transfers.forEach((t) => {
+      reply += `🚌 Bus ${t.busA} ➜ Bus ${t.busB}\n📌 Transfer: ${t.stop}\n🗺 ${mapLink(t.lat, t.lng)}\n\n`;
     });
   }
 
@@ -121,17 +119,33 @@ or
 }
 
 // ================= HELPERS =================
+
 async function loadSheet() {
-  const tsv = await fetch(SHEET_CSV).then(r => r.text());
-  return tsv.split("\n").map(r => r.split("\t")); // TSV safe
+  const tsv = await fetch(SHEET_CSV).then((r) => r.text());
+  const rows = tsv
+    .split("\n")
+    .filter((r) => r.trim())
+    .map((r) => {
+      const [
+        service_name,
+        sequence,
+        bus_stop_id,
+        name_en,
+        name_mm,
+        road_en,
+        road_mm,
+        township_en,
+        township_mm,
+        lat,
+        lng,
+      ] = r.split("\t");
+      return { service_name, sequence, bus_stop_id, name_en, name_mm, road_en, road_mm, township_en, township_mm, lat, lng };
+    });
+  return rows;
 }
 
 function normalize(text = "") {
-  return text
-    .replace(/ဈေး|မှတ်တိုင်/g, "")
-    .replace(/\s/g, "")
-    .toLowerCase()
-    .trim();
+  return text.replace(/ဈေး|မှတ်တိုင်/g, "").replace(/\s/g, "").toLowerCase().trim();
 }
 
 function mapLink(lat, lng) {
@@ -153,11 +167,11 @@ function distance(lat1, lon1, lat2, lon2) {
 function nearestStop(lat, lng, rows) {
   let min = Infinity,
     nearest = null;
-  for (let i = 1; i < rows.length; i++) {
-    const d = distance(lat, lng, rows[i][9], rows[i][10]);
+  for (const r of rows) {
+    const d = distance(lat, lng, r.lat, r.lng);
     if (d < min) {
       min = d;
-      nearest = rows[i];
+      nearest = r;
     }
   }
   return nearest;
