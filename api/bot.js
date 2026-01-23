@@ -1,12 +1,11 @@
 // api/bot.js
 import fetch from "node-fetch";
-import { json } from "micro"; // For Vercel parsing
+import { json } from "micro";
 
 const BOT_TOKEN = "8421330750:AAFqmjmoDeGpzJ9mA7OQw10u1665mfS1W08";
 const SHEET_CSV =
   "https://docs.google.com/spreadsheets/d/1nyKuHyNzCh1jalUnrN_TVYRYvNptYklY6MAedLw5Lwk/export?format=tsv";
 
-// ---------- TELEGRAM HANDLER ----------
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(200).send("OK");
 
@@ -26,29 +25,12 @@ export default async function handler(req, res) {
 📌 Usage:
 /route ဆူးလေ to လှည်းတန်း
 or
-ဆူးလေ to လှည်းတန်း
-
-📍 Location share → nearest stop`
+ဆူးလေ to လှည်းတန်း`
     );
     return res.end();
   }
 
   if (text.startsWith("/route")) text = text.replace("/route", "").trim();
-
-  // ---------- Location (Nearest Stop) ----------
-  if (msg?.location) {
-    const { latitude, longitude } = msg.location;
-    const rows = await loadSheet();
-    const stop = nearestStop(latitude, longitude, rows);
-    await send(
-      chatId,
-      `📍 Nearest Stop\n🚌 ${stop.name_mm || stop.name_en}\n🗺 ${mapLink(
-        stop.lat,
-        stop.lng
-      )}`
-    );
-    return res.end();
-  }
 
   // ---------- Route Search ----------
   if (!text.includes("to")) {
@@ -77,7 +59,7 @@ or
   if (direct.length) {
     reply += "✅ တစ်ဆင့်တည်း\n";
     direct.forEach((d) => {
-      reply += `🚌 Bus ${d.service_name}\n🗺 ${mapLink(d.lat, d.lng)}\n`;
+      reply += `🚌 Bus ${d.service_name}\n`;
     });
     await send(chatId, reply);
     return res.end();
@@ -95,8 +77,6 @@ or
             busA: f.service_name,
             busB: t.service_name,
             stop: mid.name_mm || mid.name_en,
-            lat: mid.lat,
-            lng: mid.lng,
           });
         }
       }
@@ -108,7 +88,7 @@ or
   } else {
     reply += "🔁 နှစ်ဆင့်သွားရပါမယ်\n";
     transfers.forEach((t) => {
-      reply += `🚌 Bus ${t.busA} ➜ Bus ${t.busB}\n📌 Transfer: ${t.stop}\n🗺 ${mapLink(t.lat, t.lng)}\n\n`;
+      reply += `🚌 Bus ${t.busA} ➜ Bus ${t.busB}\n📌 Transfer: ${t.stop}\n\n`;
     });
   }
 
@@ -122,58 +102,24 @@ async function loadSheet() {
   const lines = tsv.split("\n");
   const header = lines[0].split("\t");
 
-  return lines
-    .slice(1)
-    .map((line) => {
-      const cols = line.split("\t");
-      const obj = {};
-      header.forEach((h, i) => (obj[h] = cols[i]));
-      obj.sequence = Number(obj.sequence);
-      obj.lat = Number(obj.lat);
-      obj.lng = Number(obj.lng);
-      return obj;
-    });
+  return lines.slice(1).map((line) => {
+    const cols = line.split("\t");
+    const obj = {};
+    header.forEach((h, i) => (obj[h] = cols[i]));
+    obj.sequence = Number(obj.sequence);
+    return obj;
+  });
 }
 
 function normalize(text = "") {
   return text.replace(/\s/g, "").toLowerCase().trim();
 }
 
-// Simple fuzzy match for Burmese stop names
 function fuzzyMatch(a, b) {
   if (!a || !b) return false;
   a = normalize(a);
   b = normalize(b);
   return a.includes(b) || b.includes(a);
-}
-
-function mapLink(lat, lng) {
-  return `https://www.google.com/maps?q=${lat},${lng}`;
-}
-
-function distance(lat1, lon1, lat2, lon2) {
-  const R = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) ** 2;
-  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
-}
-
-function nearestStop(lat, lng, rows) {
-  let min = Infinity;
-  let nearest = null;
-  for (const r of rows) {
-    const d = distance(lat, lng, r.lat, r.lng);
-    if (d < min) {
-      min = d;
-      nearest = r;
-    }
-  }
-  return nearest;
 }
 
 async function send(chatId, text) {
