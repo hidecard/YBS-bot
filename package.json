@@ -1,31 +1,17 @@
 {
   "name": "ybs-bot",
   "version": "1.0.0",
-  "description": "Yangon YBS Bus Route Finder Bot with Location Services",
-  "main": "server.js",
-  "type": "module",
+  "description": "",
+  "main": "index.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [
-    "telegram",
-    "bot",
-    "ybs",
-    "yangon",
-    "bus",
-    "route",
-    "location",
-    "mapping"
-  ],
-  "author": "YBS Bot Team",
-  "license": "MIT",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
   "dependencies": {
     "micro": "^10.0.1",
     "node-fetch": "^2.7.0"
-  },
-  "engines": {
-    "node": ">=14.0.0"
   }
 }
