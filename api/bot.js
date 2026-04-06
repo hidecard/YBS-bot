@@ -4,6 +4,31 @@ import { json } from "micro";
 // ----- Bot token -----
 const BOT_TOKEN = "8421330750:AAFqmjmoDeGpzJ9mA7OQw10u1665mfS1W08";
 
+// ----- Simple cache for route results -----
+const routeCache = new Map();
+const CACHE_SIZE_LIMIT = 100; // Limit cache size to prevent memory issues
+
+function getCacheKey(from, to) {
+  return `${normalize(from)}-${normalize(to)}`;
+}
+
+function getCachedRoute(from, to) {
+  const key = getCacheKey(from, to);
+  return routeCache.get(key);
+}
+
+function setCachedRoute(from, to, routes) {
+  const key = getCacheKey(from, to);
+  
+  // If cache is full, remove oldest entries
+  if (routeCache.size >= CACHE_SIZE_LIMIT) {
+    const firstKey = routeCache.keys().next().value;
+    routeCache.delete(firstKey);
+  }
+  
+  routeCache.set(key, routes);
+}
+
 // ----- Bus data -----
 const BUSES = [
 
@@ -7724,22 +7749,72 @@ or
   const from = normalize(fromRaw);
   const to = normalize(toRaw);
 
-  let reply = `📍 ${fromRaw.trim()} ➜ ${toRaw.trim()}\n\n`;
-
-  // --- Direct Route Search ---
-  const directBuses = [];
-
-  for (const bus of BUSES) {
-    const fromIndex = bus.stops.findIndex((s) => normalize(s) === from);
-    const toIndex = bus.stops.findIndex((s) => normalize(s) === to);
-    if (fromIndex !== -1 && toIndex !== -1 && fromIndex < toIndex) {
-      directBuses.push(bus.id);
+  // Check if locations exist, if not try fuzzy matching
+  const fromExists = BUSES.some(bus => bus.stops.some(stop => normalize(stop) === from));
+  const toExists = BUSES.some(bus => bus.stops.some(stop => normalize(stop) === to));
+  
+  let fromSuggestion = null;
+  let toSuggestion = null;
+  
+  if (!fromExists) {
+    const fromSimilar = findSimilarStops(fromRaw, 0.7);
+    if (fromSimilar.length > 0) {
+      fromSuggestion = fromSimilar[0].stop;
     }
   }
+  
+  if (!toExists) {
+    const toSimilar = findSimilarStops(toRaw, 0.7);
+    if (toSimilar.length > 0) {
+      toSuggestion = toSimilar[0].stop;
+    }
+  }
+  
+  // If either location doesn't exist and we have suggestions, show them
+  if ((!fromExists || !toExists) && (fromSuggestion || toSuggestion)) {
+    let suggestionMsg = "💡 သင်ရှာနေတာက:\n";
+    if (!fromExists && fromSuggestion) {
+      suggestionMsg += `"${fromRaw.trim()}" → "${fromSuggestion}" လား?\n`;
+    }
+    if (!toExists && toSuggestion) {
+      suggestionMsg += `"${toRaw.trim()}" → "${toSuggestion}" လား?\n`;
+    }
+    suggestionMsg += "\nအဲ့ဒီနေရာတွေနဲ့ပဲ ရှာခိုင်မလား?";
+    await send(chatId, suggestionMsg);
+    return res.end();
+  }
 
-  if (directBuses.length) {
-    reply += "✅ တစ်ဆင့်တည်း\n";
-    directBuses.forEach((bus) => (reply += `🚌 Bus ${bus}\n`));
+  let reply = `📍 ${fromRaw.trim()} ➜ ${toRaw.trim()}\n\n`;
+
+  // --- Improved Route Finding ---
+  // Check cache first
+  let routes = getCachedRoute(from, to);
+  
+  if (!routes) {
+    // If not in cache, calculate routes
+    routes = findRoute(from, to);
+    // Cache the result
+    setCachedRoute(from, to, routes);
+  }
+  
+  if (routes.length > 0) {
+    if (routes[0].transfers === 0) {
+      reply += "✅ တစ်ဆင့်တည်း\n";
+      routes[0].buses.forEach((bus) => (reply += `🚌 Bus ${bus}\n`));
+    } else if (routes[0].transfers === 1) {
+      reply += "🔄 နှစ်ဆင့်\n";
+      reply += `🚌 Bus ${routes[0].buses[0]} → လဲလှဲရာနေရာ: ${routes[0].transferPoint}\n`;
+      reply += `🚌 Bus ${routes[0].buses[1]}\n`;
+    } else {
+      reply += `🔄 ${routes[0].transfers + 1} ဆင့်\n`;
+      routes[0].buses.forEach((bus, index) => {
+        reply += `🚌 Bus ${bus}`;
+        if (index < routes[0].transferPoints.length) {
+          reply += ` → လဲလှဲရာနေရာ: ${routes[0].transferPoints[index]}`;
+        }
+        reply += "\n";
+      });
+    }
     await send(chatId, reply);
     return res.end();
   }
@@ -7752,7 +7827,254 @@ or
 
 // ---------------- HELPERS ----------------
 function normalize(text = "") {
-  return text.replace(/\s/g, "").toLowerCase();
+  return text
+    .replace(/\s+/g, "") // Remove all whitespace
+    .replace(/[()]/g, "") // Remove parentheses
+    .replace(/[၀-၉]/g, (match) => {
+      // Convert Myanmar digits to English digits
+      const myanmarToEnglish = {
+        '၀': '0', '၁': '1', '၂': '2', '၃': '3', '၄': '4',
+        '၅': '5', '၆': '6', '၇': '7', '၈': '8', '၉': '9'
+      };
+      return myanmarToEnglish[match] || match;
+    })
+    .toLowerCase();
+}
+
+function findSimilarStops(searchTerm, threshold = 0.6) {
+  const normalized = normalize(searchTerm);
+  const similarStops = [];
+  
+  for (const bus of BUSES) {
+    for (const stop of bus.stops) {
+      const normalizedStop = normalize(stop);
+      const similarity = calculateSimilarity(normalized, normalizedStop);
+      if (similarity >= threshold) {
+        similarStops.push({ stop, busId: bus.id, similarity });
+      }
+    }
+  }
+  
+  return similarStops.sort((a, b) => b.similarity - a.similarity);
+}
+
+function calculateSimilarity(str1, str2) {
+  const longer = str1.length > str2.length ? str1 : str2;
+  const shorter = str1.length > str2.length ? str2 : str1;
+  
+  if (longer.length === 0) return 1.0;
+  
+  const editDistance = levenshteinDistance(longer, shorter);
+  return (longer.length - editDistance) / longer.length;
+}
+
+function levenshteinDistance(str1, str2) {
+  const matrix = [];
+  
+  for (let i = 0; i <= str2.length; i++) {
+    matrix[i] = [i];
+  }
+  
+  for (let j = 0; j <= str1.length; j++) {
+    matrix[0][j] = j;
+  }
+  
+  for (let i = 1; i <= str2.length; i++) {
+    for (let j = 1; j <= str1.length; j++) {
+      if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1
+        );
+      }
+    }
+  }
+  
+  return matrix[str2.length][str1.length];
+}
+
+function findRoute(from, to) {
+  try {
+    const routes = [];
+    
+    // Validate inputs
+    if (!from || !to) {
+      return routes;
+    }
+    
+    // Find direct routes (0 transfers)
+    const directRoutes = findDirectRoutes(from, to);
+    directRoutes.forEach(busId => {
+      routes.push({
+        buses: [busId],
+        transfers: 0,
+        transferPoints: []
+      });
+    });
+    
+    // If no direct routes, find routes with 1 transfer
+    if (routes.length === 0) {
+      const oneTransferRoutes = findOneTransferRoutes(from, to);
+      routes.push(...oneTransferRoutes);
+    }
+    
+    // If still no routes, find routes with 2 transfers
+    if (routes.length === 0) {
+      const twoTransferRoutes = findTwoTransferRoutes(from, to);
+      routes.push(...twoTransferRoutes);
+    }
+    
+    // Sort routes by number of transfers (fewest first), then by number of stops
+    return routes.sort((a, b) => {
+      if (a.transfers !== b.transfers) {
+        return a.transfers - b.transfers;
+      }
+      return a.buses.length - b.buses.length;
+    });
+  } catch (error) {
+    console.error('Error in findRoute:', error);
+    return [];
+  }
+}
+
+function findDirectRoutes(from, to) {
+  const directBuses = [];
+  
+  for (const bus of BUSES) {
+    const fromIndex = bus.stops.findIndex((s) => normalize(s) === from);
+    const toIndex = bus.stops.findIndex((s) => normalize(s) === to);
+    
+    if (fromIndex !== -1 && toIndex !== -1 && fromIndex < toIndex) {
+      directBuses.push(bus.id);
+    }
+  }
+  
+  return directBuses;
+}
+
+function findOneTransferRoutes(from, to) {
+  const routes = [];
+  
+  // Find buses that go from 'from'
+  const fromBuses = [];
+  for (const bus of BUSES) {
+    const fromIndex = bus.stops.findIndex((s) => normalize(s) === from);
+    if (fromIndex !== -1) {
+      fromBuses.push({
+        id: bus.id,
+        stops: bus.stops,
+        fromIndex: fromIndex
+      });
+    }
+  }
+  
+  // Find buses that go to 'to'
+  const toBuses = [];
+  for (const bus of BUSES) {
+    const toIndex = bus.stops.findIndex((s) => normalize(s) === to);
+    if (toIndex !== -1) {
+      toBuses.push({
+        id: bus.id,
+        stops: bus.stops,
+        toIndex: toIndex
+      });
+    }
+  }
+  
+  // Find common stops between fromBuses and toBuses
+  for (const fromBus of fromBuses) {
+    for (const toBus of toBuses) {
+      if (fromBus.id === toBus.id) continue; // Skip same bus (already handled as direct)
+      
+      // Find common stops after fromIndex and before toIndex
+      for (let i = fromBus.fromIndex + 1; i < fromBus.stops.length; i++) {
+        const commonStop = fromBus.stops[i];
+        const commonIndexInToBus = toBus.stops.findIndex((s) => normalize(s) === normalize(commonStop));
+        
+        if (commonIndexInToBus !== -1 && commonIndexInToBus < toBus.toIndex) {
+          routes.push({
+            buses: [fromBus.id, toBus.id],
+            transfers: 1,
+            transferPoint: commonStop,
+            transferPoints: [commonStop]
+          });
+          break; // Found a transfer point, move to next combination
+        }
+      }
+    }
+  }
+  
+  return routes;
+}
+
+function findTwoTransferRoutes(from, to) {
+  const routes = [];
+  
+  // Find buses that go from 'from'
+  const fromBuses = [];
+  for (const bus of BUSES) {
+    const fromIndex = bus.stops.findIndex((s) => normalize(s) === from);
+    if (fromIndex !== -1) {
+      fromBuses.push({
+        id: bus.id,
+        stops: bus.stops,
+        fromIndex: fromIndex
+      });
+    }
+  }
+  
+  // Find buses that go to 'to'
+  const toBuses = [];
+  for (const bus of BUSES) {
+    const toIndex = bus.stops.findIndex((s) => normalize(s) === to);
+    if (toIndex !== -1) {
+      toBuses.push({
+        id: bus.id,
+        stops: bus.stops,
+        toIndex: toIndex
+      });
+    }
+  }
+  
+  // Find intermediate buses that can connect fromBuses to toBuses
+  for (const fromBus of fromBuses) {
+    for (const intermediateBus of BUSES) {
+      if (intermediateBus.id === fromBus.id) continue;
+      
+      // Find first transfer point (fromBus to intermediateBus)
+      for (let i = fromBus.fromIndex + 1; i < fromBus.stops.length; i++) {
+        const firstTransfer = fromBus.stops[i];
+        const firstTransferIndexInIntermediate = intermediateBus.stops.findIndex((s) => normalize(s) === normalize(firstTransfer));
+        
+        if (firstTransferIndexInIntermediate !== -1) {
+          // Find second transfer point (intermediateBus to toBus)
+          for (const toBus of toBuses) {
+            if (toBus.id === intermediateBus.id) continue;
+            
+            for (let j = firstTransferIndexInIntermediate + 1; j < intermediateBus.stops.length; j++) {
+              const secondTransfer = intermediateBus.stops[j];
+              const secondTransferIndexInToBus = toBus.stops.findIndex((s) => normalize(s) === normalize(secondTransfer));
+              
+              if (secondTransferIndexInToBus !== -1 && secondTransferIndexInToBus < toBus.toIndex) {
+                routes.push({
+                  buses: [fromBus.id, intermediateBus.id, toBus.id],
+                  transfers: 2,
+                  transferPoints: [firstTransfer, secondTransfer]
+                });
+                break; // Found a complete route
+              }
+            }
+          }
+          break; // Found first transfer, move to next intermediate bus
+        }
+      }
+    }
+  }
+  
+  return routes;
 }
 
 async function send(chatId, text) {
