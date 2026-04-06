@@ -29,6 +29,40 @@ function setCachedRoute(from, to, routes) {
   routeCache.set(key, routes);
 }
 
+// ----- Bus stop coordinates -----
+const BUS_STOP_COORDINATES = {
+  "ဆူးလေ": { lat: 16.7750, lng: 96.1650 },
+  "လှည်းတန်း": { lat: 16.7967, lng: 96.1608 },
+  "ဗိုလ်တထောင်": { lat: 16.7769, lng: 96.1659 },
+  "ကျောက်တိုင်": { lat: 16.7833, lng: 96.1667 },
+  "အောင်မင်္ဂလာအဝေးပြေး": { lat: 16.7750, lng: 96.1650 },
+  "ရန်ကုန်ဘူတာကြီး": { lat: 16.7775, lng: 96.1647 },
+  "မြောက်ဥက္ကလာပအဝိုင်း": { lat: 16.7833, lng: 96.1667 },
+  "ရွာသာကြီး": { lat: 16.8333, lng: 96.1500 },
+  "သုဓမ္မာလမ်း": { lat: 16.8000, lng: 96.1500 },
+  "ကန်သာယာလမ်းဆုံ": { lat: 16.7750, lng: 96.1650 },
+  "တောင်မြောက်လမ်းဆုံ": { lat: 16.7750, lng: 96.1650 },
+  "ဗဟန်း": { lat: 16.7833, lng: 96.1667 },
+  "ကမ္ဘာအေး": { lat: 16.7750, lng: 96.1650 },
+  "လေဆိပ်": { lat: 16.9073, lng: 96.1332 },
+  "အင်းတိုင်": { lat: 16.8000, lng: 96.1500 },
+  "ကြည့်မြင်တိုင်": { lat: 16.7750, lng: 96.1650 },
+  "ကမ်းနား": { lat: 16.7750, lng: 96.1650 },
+  "သီရိမင်္ဂလာဈေးသစ်": { lat: 16.7750, lng: 96.1650 },
+  "စံပြဈေး": { lat: 16.7750, lng: 96.1650 },
+  "ဘေလီ": { lat: 16.7750, lng: 96.1650 },
+  "ပါရမီ": { lat: 16.7750, lng: 96.1650 },
+  "၆ကွေ့": { lat: 16.7750, lng: 96.1650 },
+  "၈မိုင်လမ်းဆုံ": { lat: 16.7750, lng: 96.1650 },
+  "သမိုင်းလမ်းဆုံ": { lat: 16.7750, lng: 96.1650 },
+  "ဘုရင့်နောင့်လမ်းဆုံ": { lat: 16.7750, lng: 96.1650 },
+  "ဆင်မလိုက်": { lat: 16.7750, lng: 96.1650 },
+  "အောက်ပုဇွန်တောင်လမ်း": { lat: 16.7750, lng: 96.1650 },
+  "အေဘီစီ": { lat: 16.7750, lng: 96.1650 },
+  "သုဝဏ္ဏလမ်းဆုံ": { lat: 16.7750, lng: 96.1650 },
+  "ဝေဇယန္တာလမ်း": { lat: 16.7750, lng: 96.1650 }
+};
+
 // ----- Bus data -----
 const BUSES = [
 
@@ -7733,12 +7767,43 @@ export default async function handler(req, res) {
 📌 Usage:
 /route ဆူးလေ to လှည်းတန်း
 or
-ဆူးလေ to လှည်းတန်း`
+ဆူးလေ to လှည်းတန်း
+
+📍 Location Features (Free - No API Key Required):
+/nearby - Find nearby bus stops (send location first)
+/from_here လှည်းတန်း - Route from your current location
+/to_here ဆူးလေ - Route to your current location
+/map ဆူးလေ,လှည်းတန်း - Show route on OpenStreetMap
+
+📍 Send your location to find nearby bus stops!
+🗺️ Uses OpenStreetMap (Free & Open Source)`
     );
     return res.end();
   }
 
+  // Handle location messages
+  if (msg.location) {
+    await handleLocationMessage(chatId, msg.location);
+    return res.end();
+  }
+
   if (text.startsWith("/route")) text = text.replace("/route", "").trim();
+  if (text.startsWith("/nearby")) {
+    await handleNearbyCommand(chatId);
+    return res.end();
+  }
+  if (text.startsWith("/from_here")) {
+    await handleFromHereCommand(chatId, text.replace("/from_here", "").trim());
+    return res.end();
+  }
+  if (text.startsWith("/to_here")) {
+    await handleToHereCommand(chatId, text.replace("/to_here", "").trim());
+    return res.end();
+  }
+  if (text.startsWith("/map")) {
+    await handleMapCommand(chatId, text.replace("/map", "").trim());
+    return res.end();
+  }
 
   if (!text.includes("to")) {
     await send(chatId, "❌ Format မှားပါတယ်\nဥပမာ: ဆူးလေ to လှည်းတန်း");
@@ -7823,6 +7888,317 @@ or
   reply += "❌ Route မတွေ့ပါ";
   await send(chatId, reply);
   res.end();
+}
+
+// ---------------- LOCATION COMMAND HANDLERS ----------------
+async function handleLocationMessage(chatId, location) {
+  const userLat = location.latitude;
+  const userLng = location.longitude;
+  
+  // Store user location for later use
+  if (!global.userLocations) global.userLocations = new Map();
+  global.userLocations.set(chatId, { lat: userLat, lng: userLng });
+  
+  const nearbyStops = findNearestBusStops(userLat, userLng, 2);
+  
+  if (nearbyStops.length === 0) {
+    await send(chatId, "📍 သင့်အနီးတဝိုက်မှာ ဘတ်ကားရပ်နားမတွေ့ပါ\n\n💡 အခြားနေရာကို စမ်းကြည့်ပါ သို့မဟုတ် ရှာလိုတဲ့နေရာကို ရိုက်ပါ");
+    return;
+  }
+  
+  let reply = "📍 သင့်အနီးချို့ရှိ ဘတ်ကားရပ်နားများ:\n\n";
+  
+  nearbyStops.slice(0, 5).forEach((stop, index) => {
+    reply += `${index + 1}. 🚏 ${stop.name}\n`;
+    reply += `   📏 ${formatDistance(stop.distance)} အကွာ\n`;
+    reply += `   🚌 ဘတ်ကားများ: ${stop.buses.join(", ")}\n\n`;
+  });
+  
+  // Generate map with nearby stops
+  const mapData = generateMapUrl(nearbyStops.slice(0, 5), { lat: userLat, lng: userLng });
+  reply += "🗺️ မြေပုံကြည့်မယ်ဆိုရင်:\n";
+  reply += `🔗 [OpenStreetMap](${mapData.interactive})\n`;
+  reply += `📷 [Static Map](${mapData.static})`;
+  
+  await send(chatId, reply);
+}
+
+async function handleNearbyCommand(chatId) {
+  if (!global.userLocations || !global.userLocations.has(chatId)) {
+    await send(chatId, "📍 ဦးစွာ သင့်တည်နေရာကို ပို့ပေးပါ\n\n📱 Telegram ရဲ့ 📎 attachment icon ကိုနှိပ်ပြီး 📍 Location ကိုရွေးပါ");
+    return;
+  }
+  
+  const userLocation = global.userLocations.get(chatId);
+  await handleLocationMessage(chatId, userLocation);
+}
+
+async function handleFromHereCommand(chatId, destinationText) {
+  if (!global.userLocations || !global.userLocations.has(chatId)) {
+    await send(chatId, "📍 ဦးစွာ သင့်တည်နေရာကို ပို့ပေးပါ");
+    return;
+  }
+  
+  if (!destinationText) {
+    await send(chatId, "❌ Format မှားပါတယ်\nဥပမာ: /from_here လှည်းတန်း");
+    return;
+  }
+  
+  const userLocation = global.userLocations.get(chatId);
+  const nearbyStops = findNearestBusStops(userLocation.lat, userLocation.lng, 1);
+  
+  if (nearbyStops.length === 0) {
+    await send(chatId, "📍 သင့်အနီးတဝိုက်မှာ ဘတ်ကားရပ်နားမတွေ့ပါ");
+    return;
+  }
+  
+  const nearestStop = nearbyStops[0];
+  const to = normalize(destinationText);
+  const routes = findRoute(normalize(nearestStop.name), to);
+  
+  if (routes.length > 0) {
+    let reply = `📍 ${nearestStop.name} (သင့်အနီးဆုံး) ➜ ${destinationText.trim()}\n\n`;
+    reply += `🚶 ${formatDistance(nearestStop.distance)} လမ်းလျှောက်ပြီး ${nearestStop.name} ကိုသွားပါ\n\n`;
+    
+    if (routes[0].transfers === 0) {
+      reply += "✅ တစ်ဆင့်တည်း\n";
+      routes[0].buses.forEach((bus) => (reply += `🚌 Bus ${bus}\n`));
+    } else if (routes[0].transfers === 1) {
+      reply += "🔄 နှစ်ဆင့်\n";
+      reply += `🚌 Bus ${routes[0].buses[0]} → လဲလှဲရာနေရာ: ${routes[0].transferPoint}\n`;
+      reply += `🚌 Bus ${routes[0].buses[1]}\n`;
+    }
+    
+    await send(chatId, reply);
+  } else {
+    await send(chatId, `❌ ${nearestStop.name} ကနေ ${destinationText.trim()} ကို Route မတွေ့ပါ`);
+  }
+}
+
+async function handleToHereCommand(chatId, originText) {
+  if (!global.userLocations || !global.userLocations.has(chatId)) {
+    await send(chatId, "📍 ဦးစွာ သင့်တည်နေရာကို ပို့ပေးပါ");
+    return;
+  }
+  
+  if (!originText) {
+    await send(chatId, "❌ Format မှားပါတယ်\nဥပမာ: /to_here ဆူးလေ");
+    return;
+  }
+  
+  const userLocation = global.userLocations.get(chatId);
+  const nearbyStops = findNearestBusStops(userLocation.lat, userLocation.lng, 1);
+  
+  if (nearbyStops.length === 0) {
+    await send(chatId, "📍 သင့်အနီးတဝိုက်မှာ ဘတ်ကားရပ်နားမတွေ့ပါ");
+    return;
+  }
+  
+  const nearestStop = nearbyStops[0];
+  const from = normalize(originText);
+  const routes = findRoute(from, normalize(nearestStop.name));
+  
+  if (routes.length > 0) {
+    let reply = `📍 ${originText.trim()} ➜ ${nearestStop.name} (သင့်ဆီအနီးဆုံး)\n\n`;
+    
+    if (routes[0].transfers === 0) {
+      reply += "✅ တစ်ဆင့်တည်း\n";
+      routes[0].buses.forEach((bus) => (reply += `🚌 Bus ${bus}\n`));
+    } else if (routes[0].transfers === 1) {
+      reply += "🔄 နှစ်ဆင့်\n";
+      reply += `🚌 Bus ${routes[0].buses[0]} → လဲလှဲရာနေရာ: ${routes[0].transferPoint}\n`;
+      reply += `🚌 Bus ${routes[0].buses[1]}\n`;
+    }
+    
+    reply += `\n🚶 ${nearestStop.name} ဆိုင်းက ${formatDistance(nearestStop.distance)} လမ်းလျှောက်ရပါမယ်`;
+    
+    await send(chatId, reply);
+  } else {
+    await send(chatId, `❌ ${originText.trim()} ကနေ ${nearestStop.name} ကို Route မတွေ့ပါ`);
+  }
+}
+
+async function handleMapCommand(chatId, routeText) {
+  if (!routeText) {
+    await send(chatId, "❌ Format မှားပါတယ်\nဥပမာ: /map ဆူးလေ,လှည်းတန်း");
+    return;
+  }
+  
+  const stops = routeText.split(",").map(s => s.trim());
+  const mapStops = [];
+  
+  for (const stopName of stops) {
+    const coords = BUS_STOP_COORDINATES[stopName];
+    if (coords) {
+      mapStops.push({
+        name: stopName,
+        coordinates: coords
+      });
+    }
+  }
+  
+  if (mapStops.length === 0) {
+    await send(chatId, "❌ မြေပုံဆွဲဖို့နေရာများမတွေ့ပါ");
+    return;
+  }
+  
+  const userLocation = global.userLocations?.get(chatId);
+  const mapData = generateMapUrl(mapStops, userLocation);
+  
+  let reply = "🗺️ Route Map (OpenStreetMap):\n\n";
+  mapStops.forEach((stop, index) => {
+    reply += `${index + 1}. ${stop.name}\n`;
+  });
+  
+  if (userLocation) {
+    reply += "\n📍 သင့်တည်နေရာလည်းပါဝင်ပါသည်\n";
+  }
+  
+  reply += `\n🔗 [မြေပုံကြည့်ရန်](${mapData.interactive})`;
+  reply += `\n📷 [Static Map](${mapData.static})`;
+  
+  await send(chatId, reply);
+}
+
+// ---------------- LOCATION SERVICES HELPERS ----------------
+function calculateDistance(lat1, lng1, lat2, lng2) {
+  // Haversine formula to calculate distance between two points
+  const R = 6371; // Earth's radius in kilometers
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+    Math.sin(dLng/2) * Math.sin(dLng/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c; // Distance in kilometers
+}
+
+function findNearestBusStops(userLat, userLng, radiusKm = 2) {
+  const nearbyStops = [];
+  
+  for (const [stopName, coords] of Object.entries(BUS_STOP_COORDINATES)) {
+    const distance = calculateDistance(userLat, userLng, coords.lat, coords.lng);
+    if (distance <= radiusKm) {
+      nearbyStops.push({
+        name: stopName,
+        distance: distance,
+        coordinates: coords,
+        buses: getBusesForStop(stopName)
+      });
+    }
+  }
+  
+  return nearbyStops.sort((a, b) => a.distance - b.distance);
+}
+
+function getBusesForStop(stopName) {
+  const buses = [];
+  for (const bus of BUSES) {
+    if (bus.stops.includes(stopName)) {
+      buses.push(bus.id);
+    }
+  }
+  return buses;
+}
+
+function generateMapUrl(stops, userLocation = null) {
+  // Generate OpenStreetMap URL (free, no API key required)
+  const baseUrl = "https://www.openstreetmap.org/";
+  const params = new URLSearchParams();
+  
+  // Calculate map bounds to fit all points
+  let minLat = 90, maxLat = -90, minLng = 180, maxLng = -180;
+  
+  if (userLocation) {
+    minLat = Math.min(minLat, userLocation.lat);
+    maxLat = Math.max(maxLat, userLocation.lat);
+    minLng = Math.min(minLng, userLocation.lng);
+    maxLng = Math.max(maxLng, userLocation.lng);
+  }
+  
+  stops.forEach(stop => {
+    minLat = Math.min(minLat, stop.coordinates.lat);
+    maxLat = Math.max(maxLat, stop.coordinates.lat);
+    minLng = Math.min(minLng, stop.coordinates.lng);
+    maxLng = Math.max(maxLng, stop.coordinates.lng);
+  });
+  
+  // Calculate center and zoom
+  const centerLat = (minLat + maxLat) / 2;
+  const centerLng = (minLng + maxLng) / 2;
+  
+  // Add some padding to the bounds
+  const latPadding = (maxLat - minLat) * 0.1 || 0.01;
+  const lngPadding = (maxLng - minLng) * 0.1 || 0.01;
+  
+  minLat -= latPadding;
+  maxLat += latPadding;
+  minLng -= lngPadding;
+  maxLng += lngPadding;
+  
+  // Create marker layers
+  const markers = [];
+  
+  if (userLocation) {
+    markers.push(`${userLocation.lng},${userLocation.lat}`);
+  }
+  
+  stops.forEach((stop, index) => {
+    markers.push(`${stop.coordinates.lng},${stop.coordinates.lat}`);
+  });
+  
+  // Generate OpenStreetMap URL with markers
+  const mapUrl = `${baseUrl}?mlat=${centerLat}&mlon=${centerLng}#map=15/${centerLat}/${centerLng}`;
+  
+  // Alternative: Use static map from OpenStreetMap's free service
+  const staticMapUrl = `https://staticmap.openstreetmap.de/staticmap.php?center=${centerLat},${centerLng}&zoom=15&size=600x400&maptype=osm-render`;
+  
+  // Add markers as query parameters
+  if (userLocation) {
+    staticMapUrl += `&markers=${userLocation.lng},${userLocation.lat},red`;
+  }
+  
+  stops.forEach((stop, index) => {
+    staticMapUrl += `&markers=${stop.coordinates.lng},${stop.coordinates.lat},blue`;
+  });
+  
+  return {
+    interactive: mapUrl,
+    static: staticMapUrl
+  };
+}
+
+function generateInteractiveMapLink(stops, userLocation = null) {
+  // Generate OpenStreetMap route link (no API key required)
+  const baseUrl = "https://www.openstreetmap.org/directions";
+  const params = new URLSearchParams();
+  
+  const waypoints = [];
+  
+  if (userLocation) {
+    waypoints.push(`${userLocation.lat},${userLocation.lng}`);
+  }
+  
+  stops.forEach(stop => {
+    waypoints.push(`${stop.coordinates.lat},${stop.coordinates.lng}`);
+  });
+  
+  if (waypoints.length >= 2) {
+    params.append('route', waypoints.join(';'));
+    return `${baseUrl}?${params.toString()}`;
+  }
+  
+  // Fallback to regular map view
+  const mapData = generateMapUrl(stops, userLocation);
+  return mapData.interactive;
+}
+
+function formatDistance(distance) {
+  if (distance < 1) {
+    return `${Math.round(distance * 1000)}m`;
+  }
+  return `${distance.toFixed(1)}km`;
 }
 
 // ---------------- HELPERS ----------------
