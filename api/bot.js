@@ -1,5 +1,6 @@
 // api/bot.js
 import { json } from "micro";
+import fetch from "node-fetch";
 
 // ----- Bot token -----
 const BOT_TOKEN = "8421330750:AAFqmjmoDeGpzJ9mA7OQw10u1665mfS1W08";
