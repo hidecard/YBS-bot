@@ -1,6 +1,7 @@
 // api/bot.js
 import { json } from "micro";
 import { saveLiveStatus, getRecentLiveStatus } from "./db.js";
+import STOPS_DATA from "./stops.json"; // Import the stops data
 
 // ----- Bot token -----
 const BOT_TOKEN = "8421330750:AAFqmjmoDeGpzJ9mA7OQw10u1665mfS1W08";
@@ -7757,6 +7758,30 @@ export default async function handler(req, res) {
   const chatId = msg?.chat?.id;
   let text = msg?.text || "";
 
+  // --- Handle Location Messages ---
+  if (msg?.location) {
+    const userLat = msg.location.latitude;
+    const userLng = msg.location.longitude;
+
+    const nearbyStops = findNearbyStops(userLat, userLng, 0.5); // 0.5 km radius
+
+    if (nearbyStops.length > 0) {
+      let reply = "📍 **အနီးဆုံးမှတ်တိုင်များ (၅၀၀ မီတာအတွင်း):**\n\n";
+      // Show top 5 closest stops
+      const topStops = nearbyStops.slice(0, 5);
+      topStops.forEach(stop => {
+        const dist = haversineDistance(userLat, userLng, stop.lat, stop.lng);
+        const distStr = dist < 1 ? `${Math.round(dist * 1000)}m` : `${dist.toFixed(2)}km`;
+        reply += `**${stop.name}** (${distStr})\n🚌 YBS: ${stop.bus_ids.join(", ")}\n\n`;
+      });
+      await send(chatId, reply);
+    } else {
+      await send(chatId, "❌ သင့်အနီးအနားမှာ မှတ်တိုင် မတွေ့ပါဘူး။");
+    }
+    return res.end();
+  }
+
+
   if (!chatId) return res.end();
 
   // --- Slash commands ---
@@ -7942,6 +7967,36 @@ function calculateSimilarity(str1, str2) {
   
   const editDistance = levenshteinDistance(longer, shorter);
   return (longer.length - editDistance) / longer.length;
+}
+
+// Haversine formula to calculate distance between two lat/lng points
+function haversineDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371; // Radius of Earth in kilometers
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const distance = R * c; // Distance in km
+  return distance;
+}
+
+function findNearbyStops(userLat, userLng, radiusKm) {
+  const nearby = [];
+  for (const stop of STOPS_DATA) {
+    const distance = haversineDistance(userLat, userLng, stop.lat, stop.lng);
+    if (distance <= radiusKm) {
+      nearby.push(stop);
+    }
+  }
+  // Sort by distance (closest first)
+  return nearby.sort((a, b) => {
+    const distA = haversineDistance(userLat, userLng, a.lat, a.lng);
+    const distB = haversineDistance(userLat, userLng, b.lat, b.lng);
+    return distA - distB;
+  });
 }
 
 function levenshteinDistance(str1, str2) {
