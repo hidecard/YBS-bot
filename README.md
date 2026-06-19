@@ -1,82 +1,69 @@
-# YBS Telegram Bot
+# 🚌 YBS Telegram Bot
 
-This Telegram bot helps commuters in Yangon navigate the YBS (Yangon Bus Service) network by providing bus routes, live status updates, and information about nearby bus stops.
+ရန်ကုန်မြို့တွင်း YBS (Yangon Bus Service) စီးနင်းသူများအတွက် လမ်းကြောင်းရှာဖွေခြင်း၊ အနီးနားရှိ မှတ်တိုင်များအား ကြည့်ရှုခြင်းနှင့် လက်ရှိယာဉ်ကြောအခြေအနေများကို အပြန်အလှန် သတင်းဖလှယ်နိုင်ရန် ဖန်တီးထားသော Telegram Bot ဖြစ်ပါသည်။
 
-## Features
+## ✨ Features (လုပ်ဆောင်ချက်များ)
 
-*   **Route Finding:** Find direct and transfer routes between any two YBS bus stops. The bot will suggest the best route with the fewest transfers.
-*   **Live Status Crowdsourcing:** Users can report the real-time status of buses (e.g., delayed, normal, crowded) at specific bus stops. This helps other commuters get up-to-date information.
-*   **Nearby Stops & Bus Numbers:** By sharing their live location, users can discover nearby bus stops within a 500-meter radius and see which YBS bus numbers serve those stops, along with the distance to each stop.
+*   **📍 လမ်းကြောင်းရှာဖွေခြင်း (Step-by-Step Route Search):** 
+    *   "ဘယ်ကနေ ဘယ်ကို" ဆိုသည်ကို တစ်ဆင့်ချင်းစီ မေးမြန်းသည့် စနစ်ဖြစ်သောကြောင့် အသုံးပြုရ လွယ်ကူစေပါသည်။
+    *   တိုက်ရိုက်စီးရမည့် လမ်းကြောင်းများသာမက၊ ၁ ဆင့် သို့မဟုတ် ၂ ဆင့် ပြောင်းစီးရမည့် လမ်းကြောင်းများကိုပါ အကောင်းဆုံး ၃ ခုအထိ ရွေးချယ်ပြသပေးပါသည်။
+    *   မှတ်တိုင်နာမည် ရိုက်မှားပါက အနီးစပ်ဆုံး မှတ်တိုင်များကို အကြံပြုပေးပါသည်။
 
-## Usage
+*   **🔍 အနီးနားရှိ မှတ်တိုင်များရှာရန် (Nearby Stops):**
+    *   User ၏ Live Location ကို Share ပေးရုံဖြင့် အနီးနား ၅၀၀ မီတာအတွင်းရှိ မှတ်တိုင်များ၊ အကွာအဝေးနှင့် စီးနင်းနိုင်သော YBS ကားနံပါတ်များကို ပြသပေးပါသည်။
 
-### 1. Start the Bot
+*   **📢 လက်ရှိအခြေအနေ သတင်းပို့ခြင်း (Live Status Crowdsourcing):**
+    *   ကားမှတ်တိုင်များတွင် ကားလာနေမှု အခြေအနေ (ပုံမှန်၊ လူကျပ်၊ ကားမလာ) တို့ကို အခြားသူများ သိရှိစေရန် သတင်းပို့နိုင်ပါသည်။
+    *   လမ်းကြောင်းရှာဖွေသည့်အခါ အခြားသူများ ပို့ထားသော Live သတင်းများကိုပါ တစ်ပါတည်း မြင်တွေ့နိုင်ပါသည်။
 
-Search for the bot on Telegram and send `/start`. You will see a welcome message in Myanmar with a menu keyboard for easy access to features.
+*   **🇲🇲 မြန်မာဘာသာစကားဖြင့် အသုံးပြုနိုင်ခြင်း:**
+    *   User Guide နှင့် Bot ၏ တုံ့ပြန်မှုများအားလုံးကို မြန်မာဘာသာဖြင့် ဖော်ပြပေးထားပါသည်။
 
-### 2. Find Bus Routes
+## 🚀 Usage (အသုံးပြုပုံ)
 
-To find a bus route between two stops, use the following format:
+### ၁။ Bot ကို စတင်ခြင်း
+Telegram တွင် Bot ကို ရှာဖွေပြီး `/start` ဟု ပေးပို့ပါ။ Bot က သင့်အား မြန်မာလို ကြိုဆိုနှုတ်ဆက်ပြီး Menu ခလုတ်များကို ပြသပေးပါလိမ့်မည်။
 
-```
-/route <From Stop Name> to <To Stop Name>
-```
+### ၂။ လမ်းကြောင်းရှာဖွေခြင်း
+1.  `🚌 လမ်းကြောင်းရှာရန်` ခလုတ်ကို နှိပ်ပါ။
+2.  စတင်စီးမည့် မှတ်တိုင်အမည်ကို ရိုက်ထည့်ပါ (ဥပမာ - `ဆူးလေ`)။
+3.  သွားလိုသည့် မှတ်တိုင်အမည်ကို ရိုက်ထည့်ပါ (ဥပမာ - `လှည်းတန်း`)။
+4.  Bot က အဆင်ပြေဆုံး လမ်းကြောင်းများကို အဆင့်ဆင့် ရှင်းပြပေးပါလိမ့်မည်။
 
-**Example:**
+### ၃။ အနီးနားမှတ်တိုင်များ ရှာဖွေခြင်း
+`📍 အနီးနားမှတ်တိုင်များရှာရန်` ခလုတ်ကို နှိပ်ပြီး သင့်၏ **Live Location** ကို ပေးပို့ပါ။
 
-`ဆူးလေ to လှည်းတန်း`
+### ၄။ Live သတင်းပို့ခြင်း
+လမ်းကြောင်းရှာဖွေပြီးနောက် ပေါ်လာသော `📢 YBS ... အခြေအနေ သတင်းပို့ရန်` ခလုတ်ကို နှိပ်ပြီး လက်ရှိအခြေအနေကို ရွေးချယ်ပေးပို့နိုင်ပါသည်။
 
-or
-
-`/route ဆူးလေ to လှည်းတန်း`
-
-The bot will respond with the recommended bus numbers and transfer points, if any.
-
-### 3. Report Live Bus Status
-
-When the bot suggests a route, it may include an option to report the live status of a bus at a specific stop. Click the "📢 လက်ရှိအခြေအနေ သတင်းပို့ရန်" button and follow the prompts to report if a bus is delayed, normal, or crowded.
-
-### 4. Find Nearby Bus Stops
-
-To find bus stops near your current location, simply share your **Live Location** with the bot. The bot will list the closest bus stops, their distance from you, and the YBS bus numbers that stop there.
-
-## Tech Stack
+## 🛠 Tech Stack
 
 *   **Runtime:** Node.js
-*   **Framework:** Micro (for serverless function deployment)
-*   **Database:** Turso DB (via `@libsql/client`) for storing live bus status reports.
-*   **API Client:** `node-fetch` for interacting with the Telegram Bot API.
-*   **Data:** Custom JSON files for YBS bus routes and bus stop metadata (including geographical coordinates).
+*   **Framework:** Micro (Serverless Support)
+*   **Database:** Turso DB (libSQL) - Live status များ သိမ်းဆည်းရန်
+*   **API Client:** node-fetch (Telegram Bot API)
+*   **Data Source:** YBS Route Data & Bus Stops Geo-coordinates (JSON)
 
-## Development
+## 📦 Development & Setup
 
-### Setup
+၁။ Repository ကို Clone လုပ်ပါ:
+```bash
+git clone https://github.com/hidecard/YBS-bot.git
+cd YBS-bot
+```
 
-1.  Clone the repository:
-    ```bash
-    git clone https://github.com/hidecard/YBS-bot.git
-    cd YBS-bot
-    ```
-2.  Install dependencies:
-    ```bash
-    npm install
-    ```
-3.  Ensure `api/stops.json` has correct `lat` and `lng` values (latitude and longitude are correctly mapped).
+၂။ Dependencies များသွင်းပါ:
+```bash
+npm install
+```
 
-### Deployment
+၃။ Environment Variables များ သတ်မှတ်ပါ:
+*   `BOT_TOKEN`: Telegram Bot Token
+*   `TURSO_URL`: Turso Database URL
+*   `TURSO_TOKEN`: Turso Auth Token
 
-This bot is designed to be deployed as a serverless function, for example, on Vercel or a similar platform that supports Node.js microservices.
+## 🤝 Contributing
+ဤ Project ကို ပိုမိုကောင်းမွန်အောင် ဝိုင်းဝန်းကူညီလိုပါက Issue များ ဖွင့်ခြင်း သို့မဟုတ် Pull Request များ ပေးပို့ခြင်းဖြင့် ပါဝင်နိုင်ပါသည်။
 
-### Environment Variables
-
-*   `BOT_TOKEN`: Your Telegram Bot API token.
-*   `TURSO_URL`: URL for your Turso database.
-*   `TURSO_TOKEN`: Authentication token for your Turso database.
-
-## Contributing
-
-Contributions are welcome! Please feel free to open issues or submit pull requests for improvements, bug fixes, or new features.
-
-## License
-
-This project is licensed under the ISC License. See the `LICENSE.md` file for details.
+## 📜 License
+ဤ Project ကို ISC License ဖြင့် ထုတ်ဝေထားပါသည်။
