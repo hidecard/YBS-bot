@@ -7785,16 +7785,45 @@ export default async function handler(req, res) {
   if (!chatId) return res.end();
 
   // --- Slash commands ---
-  if (text === "/help") {
-    await send(
-      chatId,
-      `🚌 Yangon YBS Guide Bot
+  if (text === "/start" || text === "/help") {
+    const welcomeMsg = `🚌 **Yangon YBS Guide Bot မှ ကြိုဆိုပါတယ်ဗျာ!**
 
-📌 Usage:
-/route ဆူးလေ to လှည်းတန်း
-or
-ဆူးလေ to လှည်းတန်း`
-    );
+ဒီ Bot ကနေတစ်ဆင့် ရန်ကုန်မြို့တွင်း YBS လိုင်းတွေကို အလွယ်တကူ ရှာဖွေနိုင်ပါတယ်။
+
+📌 **အသုံးပြုနိုင်တဲ့ လုပ်ဆောင်ချက်များ:**
+
+1️⃣ **လမ်းကြောင်းရှာရန်:** 
+\`ဆူးလေ to လှည်းတန်း\` သို့မဟုတ် \`/route ဆူးလေ to လှည်းတန်း\` ဟု ရိုက်နှိပ်ရှာဖွေနိုင်ပါတယ်။
+
+2️⃣ **အနီးနားမှတ်တိုင်များရှာရန်:** 
+သင့်ရဲ့ **Live Location** ကို share ပေးလိုက်ရင် အနီးနားက မှတ်တိုင်တွေနဲ့ စီးလို့ရတဲ့ ကားနံပတ်တွေကို ပြပေးမှာပါ။
+
+3️⃣ **Live သတင်းကြည့်ရန်:** 
+ကားလမ်းကြောင်းရှာတဲ့အခါ အခြားသူတွေ သတင်းပို့ထားတဲ့ လက်ရှိအခြေအနေတွေကိုပါ မြင်တွေ့နိုင်မှာပါ။
+
+အောက်က Menu ခလုတ်တွေကို အသုံးပြုပြီးလည်း စမ်းသပ်ကြည့်နိုင်ပါတယ်ဗျာ။`;
+
+    const menuMarkup = {
+      keyboard: [
+        [{ text: "📍 အနီးနားမှတ်တိုင်များရှာရန်", request_location: true }],
+        [{ text: "❓ အကူအညီရယူရန်" }]
+      ],
+      resize_keyboard: true,
+      one_time_keyboard: false
+    };
+
+    await send(chatId, welcomeMsg, menuMarkup);
+    return res.end();
+  }
+
+  if (text === "❓ အကူအညီရယူရန်") {
+    await send(chatId, "💡 လမ်းကြောင်းရှာဖို့အတွက် `မှတ်တိုင် (က) to မှတ်တိုင် (ခ)` ဆိုတဲ့ format နဲ့ ရိုက်ပေးပါဗျာ။\nဥပမာ - `ဆူးလေ to လှည်းတန်း`", {
+      keyboard: [
+        [{ text: "📍 အနီးနားမှတ်တိုင်များရှာရန်", request_location: true }],
+        [{ text: "❓ အကူအညီရယူရန်" }]
+      ],
+      resize_keyboard: true
+    });
     return res.end();
   }
 

@@ -12,7 +12,7 @@ This Telegram bot helps commuters in Yangon navigate the YBS (Yangon Bus Service
 
 ### 1. Start the Bot
 
-Search for the bot on Telegram and start a chat.
+Search for the bot on Telegram and send `/start`. You will see a welcome message in Myanmar with a menu keyboard for easy access to features.
 
 ### 2. Find Bus Routes
 
