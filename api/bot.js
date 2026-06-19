@@ -1,7 +1,13 @@
 // api/bot.js
 import { json } from "micro";
 import { saveLiveStatus, getRecentLiveStatus } from "./db.js";
-import STOPS_DATA from "./stops.json"; // Import the stops data
+import fs from "fs";
+import path from "path";
+import fetch from "node-fetch";
+
+// Load STOPS_DATA manually to avoid ESM JSON import issues
+const stopsPath = path.join(process.cwd(), "api", "stops.json");
+const STOPS_DATA = JSON.parse(fs.readFileSync(stopsPath, "utf8"));
 
 // ----- Bot token -----
 const BOT_TOKEN = "8421330750:AAFqmjmoDeGpzJ9mA7OQw10u1665mfS1W08";
@@ -7801,7 +7807,7 @@ export default async function handler(req, res) {
   if (!chatId) return res.end();
 
   // --- Slash commands ---
-  if (text === "/start" || text === "/help") {
+  if (text.startsWith("/start") || text.startsWith("/help")) {
     userSessions.delete(chatId); // Reset session
     const welcomeMsg = `🚌 **Yangon YBS Guide Bot မှ ကြိုဆိုပါတယ်ဗျာ!**
 
@@ -8283,15 +8289,23 @@ function findTwoTransferRoutes(from, to) {
 }
 
 async function send(chatId, text, replyMarkup = null) {
-  const body = { chat_id: chatId, text };
-  if (replyMarkup) {
-    body.reply_markup = replyMarkup;
+  try {
+    const body = { chat_id: chatId, text: text || "(Empty Message)" };
+    if (replyMarkup) {
+      body.reply_markup = replyMarkup;
+    }
+    const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const result = await response.json();
+    if (!result.ok) {
+      console.error("Telegram API Error:", result);
+    }
+  } catch (err) {
+    console.error("Send Message Error:", err);
   }
-  await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
 }
 
 async function answerCallbackQuery(callbackQueryId, text) {
