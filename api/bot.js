@@ -7716,8 +7716,21 @@ const BUSES = [
 ];
 
 // ---------------- BOT ----------------
+let isDbInitialized = false;
+
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(200).send("OK");
+
+  // Initialize DB once
+  if (!isDbInitialized) {
+    try {
+      const { initDb } = await import("./db.js");
+      await initDb();
+      isDbInitialized = true;
+    } catch (err) {
+      console.error("DB Init Error:", err);
+    }
+  }
 
   const update = await json(req);
 
@@ -7746,9 +7759,15 @@ export default async function handler(req, res) {
     else if (data.startsWith("status_")) {
       // Step 2: User selected a status, save to database
       const [_, statusType, busId, stationName] = data.split("_");
-      await saveLiveStatus(busId, stationName, statusType);
-      await answerCallbackQuery(callbackQuery.id, "သတင်းပို့ပေးလို့ ကျေးဇူးတင်ပါတယ်ဗျာ!");
-      await send(chatId, "🙏 သတင်းပို့ပေးလို့ ကျေးဇူးတင်ပါတယ်။ အခြားခရီးသည်တွေအတွက် အများကြီးအထောက်အကူပြုသွားပါပြီဗျာ။");
+      try {
+        await saveLiveStatus(busId, stationName, statusType);
+        await answerCallbackQuery(callbackQuery.id, "သတင်းပို့ပေးလို့ ကျေးဇူးတင်ပါတယ်ဗျာ!");
+        await send(chatId, "🙏 သတင်းပို့ပေးလို့ ကျေးဇူးတင်ပါတယ်။ အခြားခရီးသည်တွေအတွက် အများကြီးအထောက်အကူပြုသွားပါပြီဗျာ။");
+      } catch (dbError) {
+        console.error("Database error:", dbError);
+        await answerCallbackQuery(callbackQuery.id, "Error: သတင်းပို့လို့ မရပါဘူးခင်ဗျာ။");
+        await send(chatId, "❌ စနစ်ချို့ယွင်းမှုကြောင့် သတင်းပို့လို့ မရပါဘူး။ ခဏနေမှ ပြန်ကြိုးစားပေးပါဦး။");
+      }
     }
 
     return res.end();
@@ -7937,12 +7956,12 @@ export default async function handler(req, res) {
         });
       }
 
+      const reportButtons = bestRoute.buses.map(busId => [
+        { text: `📢 YBS ${busId} အခြေအနေ သတင်းပို့ရန်`, callback_data: `report_${busId}_${fromRaw.trim()}` }
+      ]);
+
       const reportMarkup = {
-        inline_keyboard: [
-          [
-            { text: "📢 လက်ရှိအခြေအနေ သတင်းပို့ရန်", callback_data: `report_${bestRoute.buses[0]}_${fromRaw.trim()}` }
-          ]
-        ]
+        inline_keyboard: reportButtons
       };
 
       await send(chatId, reply, reportMarkup);
@@ -8075,25 +8094,25 @@ function findRoute(from, to) {
       });
     });
     
-    // If no direct routes, find routes with 1 transfer
-    if (routes.length === 0) {
-      const oneTransferRoutes = findOneTransferRoutes(from, to);
-      routes.push(...oneTransferRoutes);
-    }
+    // Find routes with 1 transfer
+    const oneTransferRoutes = findOneTransferRoutes(from, to);
+    routes.push(...oneTransferRoutes);
     
-    // If still no routes, find routes with 2 transfers
-    if (routes.length === 0) {
-      const twoTransferRoutes = findTwoTransferRoutes(from, to);
-      routes.push(...twoTransferRoutes);
-    }
+    // Find routes with 2 transfers
+    const twoTransferRoutes = findTwoTransferRoutes(from, to);
+    routes.push(...twoTransferRoutes);
     
-    // Sort routes by number of transfers (fewest first), then by total number of buses
-    return routes.sort((a, b) => {
+    // Ensure routes are found and sorted by number of transfers (fewest first)
+    // If we have direct routes, we might still want to show 1-transfer routes if they are better
+    // But per user request, we prioritize fewest transfers.
+    const sortedRoutes = routes.sort((a, b) => {
       if (a.transfers !== b.transfers) {
         return a.transfers - b.transfers;
       }
       return a.buses.length - b.buses.length;
     });
+
+    return sortedRoutes;
   } catch (error) {
     console.error('Error in findRoute:', error);
     return [];
