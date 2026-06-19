@@ -1,5 +1,6 @@
 // api/bot.js
 import { json } from "micro";
+import { saveLiveStatus, getRecentLiveStatus } from "./db.js";
 
 // ----- Bot token -----
 const BOT_TOKEN = "8421330750:AAFqmjmoDeGpzJ9mA7OQw10u1665mfS1W08";
@@ -7718,6 +7719,40 @@ export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(200).send("OK");
 
   const update = await json(req);
+
+  // --- Handle Callback Queries (Crowdsourcing) ---
+  if (update.callback_query) {
+    const callbackQuery = update.callback_query;
+    const chatId = callbackQuery.message.chat.id;
+    const data = callbackQuery.data;
+
+    if (data.startsWith("report_")) {
+      // Step 1: User selected a bus/station, ask for status
+      const [_, busId, stationName] = data.split("_");
+      const statusMarkup = {
+        inline_keyboard: [
+          [
+            { text: "🔴 မလာတာကြာပြီ", callback_data: `status_delayed_${busId}_${stationName}` },
+            { text: "🟢 ပုံမှန်လာတယ်", callback_data: `status_normal_${busId}_${stationName}` }
+          ],
+          [
+            { text: "🟡 လူတအားကျပ်တယ်", callback_data: `status_crowded_${busId}_${stationName}` }
+          ]
+        ]
+      };
+      await send(chatId, `🚌 YBS ${busId} (${stationName} ဂိတ်)\nဘာဖြစ်နေလဲဆိုတာ ရွေးပေးပါဦးဗျာ -`, statusMarkup);
+    } 
+    else if (data.startsWith("status_")) {
+      // Step 2: User selected a status, save to database
+      const [_, statusType, busId, stationName] = data.split("_");
+      await saveLiveStatus(busId, stationName, statusType);
+      await answerCallbackQuery(callbackQuery.id, "သတင်းပို့ပေးလို့ ကျေးဇူးတင်ပါတယ်ဗျာ!");
+      await send(chatId, "🙏 သတင်းပို့ပေးလို့ ကျေးဇူးတင်ပါတယ်။ အခြားခရီးသည်တွေအတွက် အများကြီးအထောက်အကူပြုသွားပါပြီဗျာ။");
+    }
+
+    return res.end();
+  }
+
   const msg = update.message;
   const chatId = msg?.chat?.id;
   let text = msg?.text || "";
@@ -7800,11 +7835,32 @@ or
   if (routes.length > 0) {
     if (routes[0].transfers === 0) {
       reply += "✅ တစ်ဆင့်တည်း\n";
-      routes[0].buses.forEach((bus) => (reply += `🚌 Bus ${bus}\n`));
+      for (const busId of routes[0].buses) {
+        reply += `🚌 Bus ${busId}\n`;
+        // Add Live Status for direct bus
+        const liveStatus = await getRecentLiveStatus(busId);
+        if (liveStatus) {
+          const timeAgo = Math.floor((new Date() - new Date(liveStatus.reported_at)) / 60000);
+          let statusEmoji = liveStatus.status_type === 'delayed' ? '🔴' : (liveStatus.status_type === 'crowded' ? '🟡' : '🟢');
+          let statusText = liveStatus.status_type === 'delayed' ? 'မလာတာကြာနေတယ်' : (liveStatus.status_type === 'crowded' ? 'လူတအားကျပ်နေတယ်' : 'ပုံမှန်လာနေတယ်');
+          reply += `📌 Live သတင်း (${timeAgo} မိနစ်ခန့်က):\n${statusEmoji} *${liveStatus.station_name}* ဂိတ်မှာ ${statusText}လို့ ခရီးသည်တစ်ဦး သတင်းပို့ထားပါတယ်ဗျာ။\n`;
+        }
+      }
     } else if (routes[0].transfers === 1) {
       reply += "🔄 နှစ်ဆင့်\n";
       reply += `🚌 Bus ${routes[0].buses[0]} → လဲလှဲရာနေရာ: ${routes[0].transferPoint}\n`;
       reply += `🚌 Bus ${routes[0].buses[1]}\n`;
+      
+      // Add Live Status for both buses
+      for (const busId of routes[0].buses) {
+        const liveStatus = await getRecentLiveStatus(busId);
+        if (liveStatus) {
+          const timeAgo = Math.floor((new Date() - new Date(liveStatus.reported_at)) / 60000);
+          let statusEmoji = liveStatus.status_type === 'delayed' ? '🔴' : (liveStatus.status_type === 'crowded' ? '🟡' : '🟢');
+          let statusText = liveStatus.status_type === 'delayed' ? 'မလာတာကြာနေတယ်' : (liveStatus.status_type === 'crowded' ? 'လူတအားကျပ်နေတယ်' : 'ပုံမှန်လာနေတယ်');
+          reply += `\n📌 Live (Bus ${busId}): ${statusEmoji} ${liveStatus.station_name} မှာ ${statusText} (${timeAgo} မိနစ်က)`;
+        }
+      }
     } else {
       reply += `🔄 ${routes[0].transfers + 1} ဆင့်\n`;
       routes[0].buses.forEach((bus, index) => {
@@ -7815,14 +7871,24 @@ or
         reply += "\n";
       });
     }
-    await send(chatId, reply);
+
+    // Add Report Button
+    const reportMarkup = {
+      inline_keyboard: [
+        [
+          { text: "📢 လက်ရှိအခြေအနေ သတင်းပို့ရန်", callback_data: `report_${routes[0].buses[0]}_${fromRaw.trim()}` }
+        ]
+      ]
+    };
+
+    await send(chatId, reply, reportMarkup);
     return res.end();
   }
 
   // --- If no route found ---
   reply += "❌ Route မတွေ့ပါ";
   await send(chatId, reply);
-  res.end();
+  return res.end();
 }
 
 // ---------------- HELPERS ----------------
@@ -8077,10 +8143,22 @@ function findTwoTransferRoutes(from, to) {
   return routes;
 }
 
-async function send(chatId, text) {
+async function send(chatId, text, replyMarkup = null) {
+  const body = { chat_id: chatId, text };
+  if (replyMarkup) {
+    body.reply_markup = replyMarkup;
+  }
   await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, text }),
+    body: JSON.stringify(body),
+  });
+}
+
+async function answerCallbackQuery(callbackQueryId, text) {
+  await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/answerCallbackQuery`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ callback_query_id: callbackQueryId, text }),
   });
 }
