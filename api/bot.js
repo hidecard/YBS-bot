@@ -10,6 +10,9 @@ const BOT_TOKEN = "8421330750:AAFqmjmoDeGpzJ9mA7OQw10u1665mfS1W08";
 const routeCache = new Map();
 const CACHE_SIZE_LIMIT = 100; // Limit cache size to prevent memory issues
 
+// --- User Session for Step-by-step Input ---
+const userSessions = new Map();
+
 function getCacheKey(from, to) {
   return `${normalize(from)}-${normalize(to)}`;
 }
@@ -7805,6 +7808,7 @@ export default async function handler(req, res) {
 
   // --- Slash commands ---
   if (text === "/start" || text === "/help") {
+    userSessions.delete(chatId); // Reset session
     const welcomeMsg = `🚌 **Yangon YBS Guide Bot မှ ကြိုဆိုပါတယ်ဗျာ!**
 
 ဒီ Bot ကနေတစ်ဆင့် ရန်ကုန်မြို့တွင်း YBS လိုင်းတွေကို အလွယ်တကူ ရှာဖွေနိုင်ပါတယ်။
@@ -7812,18 +7816,17 @@ export default async function handler(req, res) {
 📌 **အသုံးပြုနိုင်တဲ့ လုပ်ဆောင်ချက်များ:**
 
 1️⃣ **လမ်းကြောင်းရှာရန်:** 
-\`ဆူးလေ to လှည်းတန်း\` သို့မဟုတ် \`/route ဆူးလေ to လှည်းတန်း\` ဟု ရိုက်နှိပ်ရှာဖွေနိုင်ပါတယ်။
+အောက်က "🚌 လမ်းကြောင်းရှာရန်" ခလုတ်ကို နှိပ်ပြီး တစ်ဆင့်ချင်းစီ ရှာဖွေနိုင်ပါတယ်။
 
 2️⃣ **အနီးနားမှတ်တိုင်များရှာရန်:** 
 သင့်ရဲ့ **Live Location** ကို share ပေးလိုက်ရင် အနီးနားက မှတ်တိုင်တွေနဲ့ စီးလို့ရတဲ့ ကားနံပတ်တွေကို ပြပေးမှာပါ။
 
 3️⃣ **Live သတင်းကြည့်ရန်:** 
-ကားလမ်းကြောင်းရှာတဲ့အခါ အခြားသူတွေ သတင်းပို့ထားတဲ့ လက်ရှိအခြေအနေတွေကိုပါ မြင်တွေ့နိုင်မှာပါ။
-
-အောက်က Menu ခလုတ်တွေကို အသုံးပြုပြီးလည်း စမ်းသပ်ကြည့်နိုင်ပါတယ်ဗျာ။`;
+ကားလမ်းကြောင်းရှာတဲ့အခါ အခြားသူတွေ သတင်းပို့ထားတဲ့ လက်ရှိအခြေအနေတွေကိုပါ မြင်တွေ့နိုင်မှာပါ။`;
 
     const menuMarkup = {
       keyboard: [
+        [{ text: "🚌 လမ်းကြောင်းရှာရန်" }],
         [{ text: "📍 အနီးနားမှတ်တိုင်များရှာရန်", request_location: true }],
         [{ text: "❓ အကူအညီရယူရန်" }]
       ],
@@ -7836,8 +7839,9 @@ export default async function handler(req, res) {
   }
 
   if (text === "❓ အကူအညီရယူရန်") {
-    await send(chatId, "💡 လမ်းကြောင်းရှာဖို့အတွက် `မှတ်တိုင် (က) to မှတ်တိုင် (ခ)` ဆိုတဲ့ format နဲ့ ရိုက်ပေးပါဗျာ။\nဥပမာ - `ဆူးလေ to လှည်းတန်း`", {
+    await send(chatId, "💡 လမ်းကြောင်းရှာဖို့အတွက် `🚌 လမ်းကြောင်းရှာရန်` ခလုတ်ကို နှိပ်ပါ။\nဒါမှမဟုတ် `မှတ်တိုင် (က) to မှတ်တိုင် (ခ)` ဆိုတဲ့ format နဲ့ ရိုက်ပေးပါဗျာ။\nဥပမာ - `ဆူးလေ to လှည်းတန်း`", {
       keyboard: [
+        [{ text: "🚌 လမ်းကြောင်းရှာရန်" }],
         [{ text: "📍 အနီးနားမှတ်တိုင်များရှာရန်", request_location: true }],
         [{ text: "❓ အကူအညီရယူရန်" }]
       ],
@@ -7846,132 +7850,158 @@ export default async function handler(req, res) {
     return res.end();
   }
 
-  if (text.startsWith("/route")) text = text.replace("/route", "").trim();
-
-  if (!text.includes("to")) {
-    await send(chatId, "❌ Format မှားပါတယ်\nဥပမာ: ဆူးလေ to လှည်းတန်း");
+  // --- Step-by-step Route Input ---
+  if (text === "🚌 လမ်းကြောင်းရှာရန်") {
+    userSessions.set(chatId, { step: "awaiting_from" });
+    await send(chatId, "📍 **ဘယ်မှတ်တိုင်ကနေ စီးမှာလဲဗျာ?**\n(ဥပမာ - ဆူးလေ)", {
+      reply_markup: { remove_keyboard: true }
+    });
     return res.end();
   }
 
-  const [fromRaw, toRaw] = text.split("to");
-  const from = normalize(fromRaw);
-  const to = normalize(toRaw);
+  const session = userSessions.get(chatId);
+  if (session && session.step === "awaiting_from") {
+    const fromRaw = text.trim();
+    const fromNormalized = normalize(fromRaw);
+    const exists = BUSES.some(bus => bus.stops.some(stop => normalize(stop) === fromNormalized));
 
-  // Check if locations exist, if not try fuzzy matching
-  const fromExists = BUSES.some(bus => bus.stops.some(stop => normalize(stop) === from));
-  const toExists = BUSES.some(bus => bus.stops.some(stop => normalize(stop) === to));
-  
-  let fromSuggestion = null;
-  let toSuggestion = null;
-  
-  if (!fromExists) {
-    const fromSimilar = findSimilarStops(fromRaw, 0.7);
-    if (fromSimilar.length > 0) {
-      fromSuggestion = fromSimilar[0].stop;
-    }
-  }
-  
-  if (!toExists) {
-    const toSimilar = findSimilarStops(toRaw, 0.7);
-    if (toSimilar.length > 0) {
-      toSuggestion = toSimilar[0].stop;
-    }
-  }
-  
-  // If either location doesn't exist and we have suggestions, show them
-  if ((!fromExists || !toExists) && (fromSuggestion || toSuggestion)) {
-    let suggestionMsg = "💡 သင်ရှာနေတာက:\n";
-    if (!fromExists && fromSuggestion) {
-      suggestionMsg += `"${fromRaw.trim()}" → "${fromSuggestion}" လား?\n`;
-    }
-    if (!toExists && toSuggestion) {
-      suggestionMsg += `"${toRaw.trim()}" → "${toSuggestion}" လား?\n`;
-    }
-    suggestionMsg += "\nအဲ့ဒီနေရာတွေနဲ့ပဲ ရှာခိုင်မလား?";
-    await send(chatId, suggestionMsg);
-    return res.end();
-  }
-
-  let reply = `📍 ${fromRaw.trim()} ➜ ${toRaw.trim()}\n\n`;
-
-  // --- Improved Route Finding ---
-  // Check cache first
-  let routes = getCachedRoute(from, to);
-  
-  if (!routes) {
-    // If not in cache, calculate routes
-    routes = findRoute(from, to);
-    // Cache the result
-    setCachedRoute(from, to, routes);
-  }
-  
-    if (routes.length > 0) {
-      const bestRoute = routes[0];
-      
-      if (bestRoute.transfers === 0) {
-        reply += "✅ **တိုက်ရိုက်စီးရန် (Direct Route)**\n\n";
-        reply += `🚌 **YBS ${bestRoute.buses[0]}** ကို စီးပါ။\n`;
-        reply += `📍 **${fromRaw.trim()}** ဂိတ်မှ တက်ပါ။\n`;
-        reply += `🏁 **${toRaw.trim()}** ဂိတ်တွင် ဆင်းပါ။\n`;
-        
-        const liveStatus = await getRecentLiveStatus(bestRoute.buses[0]);
-        if (liveStatus) {
-          const timeAgo = Math.floor((new Date() - new Date(liveStatus.reported_at)) / 60000);
-          let statusEmoji = liveStatus.status_type === 'delayed' ? '🔴' : (liveStatus.status_type === 'crowded' ? '🟡' : '🟢');
-          let statusText = liveStatus.status_type === 'delayed' ? 'မလာတာကြာနေတယ်' : (liveStatus.status_type === 'crowded' ? 'လူတအားကျပ်နေတယ်' : 'ပုံမှန်လာနေတယ်');
-          reply += `\n📌 **Live သတင်း (${timeAgo} မိနစ်ခန့်က):**\n${statusEmoji} *${liveStatus.station_name}* ဂိတ်မှာ ${statusText}လို့ ခရီးသည်တစ်ဦး သတင်းပို့ထားပါတယ်ဗျာ။\n`;
-        }
-      } else if (bestRoute.transfers === 1) {
-        reply += "🔄 **နှစ်ဆင့်စီးရန် (1 Transfer)**\n\n";
-        reply += `1️⃣ **ပထမအဆင့်:**\n`;
-        reply += `🚌 **YBS ${bestRoute.buses[0]}** ကို **${fromRaw.trim()}** မှ စီးပါ။\n`;
-        reply += `🛑 **${bestRoute.transferPoint}** ဂိတ်တွင် ဆင်းပါ။\n\n`;
-        reply += `2️⃣ **ဒုတိယအဆင့်:**\n`;
-        reply += `🚌 **YBS ${bestRoute.buses[1]}** ကို **${bestRoute.transferPoint}** မှ ပြန်စီးပါ။\n`;
-        reply += `🏁 **${toRaw.trim()}** ဂိတ်တွင် ဆင်းပါ။\n`;
-        
-        for (const busId of bestRoute.buses) {
-          const liveStatus = await getRecentLiveStatus(busId);
-          if (liveStatus) {
-            const timeAgo = Math.floor((new Date() - new Date(liveStatus.reported_at)) / 60000);
-            let statusEmoji = liveStatus.status_type === 'delayed' ? '🔴' : (liveStatus.status_type === 'crowded' ? '🟡' : '🟢');
-            let statusText = liveStatus.status_type === 'delayed' ? 'မလာတာကြာနေတယ်' : (liveStatus.status_type === 'crowded' ? 'လူတအားကျပ်နေတယ်' : 'ပုံမှန်လာနေတယ်');
-            reply += `\n📌 **Live (Bus ${busId}):** ${statusEmoji} ${liveStatus.station_name} မှာ ${statusText} (${timeAgo} မိနစ်က)`;
-          }
-        }
+    if (!exists) {
+      const similar = findSimilarStops(fromRaw, 0.6);
+      if (similar.length > 0) {
+        let suggestionMsg = `❌ "${fromRaw}" မှတ်တိုင်ကို ရှာမတွေ့ပါဘူး။\n\nသင်ရှာနေတာက အောက်က တစ်ခုခုလားဗျာ? (နာမည်အတိအကျ ပြန်ရိုက်ပေးပါ)`;
+        similar.slice(0, 5).forEach(s => suggestionMsg += `\n• ${s.stop}`);
+        await send(chatId, suggestionMsg);
       } else {
-        reply += `🔄 **${bestRoute.transfers + 1} ဆင့်စီးရန် (${bestRoute.transfers} Transfers)**\n\n`;
-        bestRoute.buses.forEach((bus, index) => {
-          if (index === 0) {
-            reply += `${index + 1}️⃣ **YBS ${bus}** ကို **${fromRaw.trim()}** မှ စီးပါ။\n`;
-          } else {
-            reply += `${index + 1}️⃣ **YBS ${bus}** ကို **${bestRoute.transferPoints[index-1]}** မှ စီးပါ။\n`;
-          }
-          
-          if (index < bestRoute.transferPoints.length) {
-            reply += `🛑 **${bestRoute.transferPoints[index]}** တွင် ဆင်းပြီး ကားပြောင်းပါ။\n\n`;
-          } else {
-            reply += `🏁 **${toRaw.trim()}** တွင် ဆင်းပါ။\n`;
-          }
-        });
+        await send(chatId, `❌ "${fromRaw}" မှတ်တိုင်ကို ရှာမတွေ့ပါဘူး။ တခြားနာမည်တစ်ခုနဲ့ ပြန်ရိုက်ပေးပါဦး။`);
       }
-
-      const reportButtons = bestRoute.buses.map(busId => [
-        { text: `📢 YBS ${busId} အခြေအနေ သတင်းပို့ရန်`, callback_data: `report_${busId}_${fromRaw.trim()}` }
-      ]);
-
-      const reportMarkup = {
-        inline_keyboard: reportButtons
-      };
-
-      await send(chatId, reply, reportMarkup);
       return res.end();
     }
 
-  // --- If no route found ---
-  reply += "❌ Route မတွေ့ပါ";
-  await send(chatId, reply);
+    userSessions.set(chatId, { step: "awaiting_to", from: fromRaw });
+    await send(chatId, `✅ စီးမည့်မှတ်တိုင်: **${fromRaw}**\n\n🏁 **ဘယ်မှတ်တိုင်ကို သွားမှာလဲဗျာ?**\n(ဥပမာ - လှည်းတန်း)`);
+    return res.end();
+  }
+
+  if (session && session.step === "awaiting_to") {
+    const toRaw = text.trim();
+    const toNormalized = normalize(toRaw);
+    const exists = BUSES.some(bus => bus.stops.some(stop => normalize(stop) === toNormalized));
+
+    if (!exists) {
+      const similar = findSimilarStops(toRaw, 0.6);
+      if (similar.length > 0) {
+        let suggestionMsg = `❌ "${toRaw}" မှတ်တိုင်ကို ရှာမတွေ့ပါဘူး။\n\nသင်ရှာနေတာက အောက်က တစ်ခုခုလားဗျာ? (နာမည်အတိအကျ ပြန်ရိုက်ပေးပါ)`;
+        similar.slice(0, 5).forEach(s => suggestionMsg += `\n• ${s.stop}`);
+        await send(chatId, suggestionMsg);
+      } else {
+        await send(chatId, `❌ "${toRaw}" မှတ်တိုင်ကို ရှာမတွေ့ပါဘူး။ တခြားနာမည်တစ်ခုနဲ့ ပြန်ရိုက်ပေးပါဦး။`);
+      }
+      return res.end();
+    }
+
+    const fromRaw = session.from;
+    userSessions.delete(chatId); // Clear session
+
+    await handleRouteSearch(chatId, fromRaw, toRaw, res);
+    return res.end();
+  }
+
+  // Fallback for legacy format "A to B"
+  if (text.includes("to")) {
+    const [fromRaw, toRaw] = text.split("to");
+    await handleRouteSearch(chatId, fromRaw.trim(), toRaw.trim(), res);
+    return res.end();
+  }
+
+  await send(chatId, "❓ နားမလည်ပါဘူးဗျာ။ အောက်က Menu ခလုတ်တွေကို အသုံးပြုပေးပါဦး။", {
+    keyboard: [
+      [{ text: "🚌 လမ်းကြောင်းရှာရန်" }],
+      [{ text: "📍 အနီးနားမှတ်တိုင်များရှာရန်", request_location: true }],
+      [{ text: "❓ အကူအညီရယူရန်" }]
+    ],
+    resize_keyboard: true
+  });
   return res.end();
+}
+
+async function handleRouteSearch(chatId, fromRaw, toRaw, res) {
+  const from = normalize(fromRaw);
+  const to = normalize(toRaw);
+
+  let routes = getCachedRoute(from, to);
+  if (!routes) {
+    routes = findRoute(from, to);
+    setCachedRoute(from, to, routes);
+  }
+
+  if (routes.length === 0) {
+    await send(chatId, `❌ **${fromRaw}** မှ **${toRaw}** သို့ သွားမည့် လမ်းကြောင်း မတွေ့ပါဘူး။`);
+    return;
+  }
+
+  let reply = `📍 **${fromRaw} ➜ ${toRaw}**\n\n`;
+  
+  // Show top 3 best routes (mix of direct, 1-transfer, 2-transfer)
+  const displayRoutes = routes.slice(0, 3);
+
+  for (let i = 0; i < displayRoutes.length; i++) {
+    const route = displayRoutes[i];
+    const emoji = i === 0 ? "🌟" : "🔹";
+    
+    if (route.transfers === 0) {
+      reply += `${emoji} **တိုက်ရိုက်စီးရန် (Direct Route)**\n`;
+      reply += `🚌 **YBS ${route.buses[0]}** ကို စီးပါ။\n\n`;
+    } else {
+      reply += `${emoji} **${route.transfers + 1} ဆင့်စီးရန် (${route.transfers} Transfers)**\n`;
+      route.buses.forEach((bus, idx) => {
+        if (idx === 0) {
+          reply += `${idx + 1}️⃣ **YBS ${bus}** ကို **${fromRaw}** မှ စီးပါ။\n`;
+        } else {
+          reply += `${idx + 1}️⃣ **YBS ${bus}** ကို **${route.transferPoints[idx-1]}** မှ စီးပါ။\n`;
+        }
+        
+        if (idx < route.transferPoints.length) {
+          reply += `🛑 **${route.transferPoints[idx]}** တွင် ဆင်းပြီး ကားပြောင်းပါ။\n`;
+        } else {
+          reply += `🏁 **${toRaw}** တွင် ဆင်းပါ။\n`;
+        }
+      });
+      reply += "\n";
+    }
+
+    // Add Live Status if available
+    for (const busId of route.buses) {
+      const liveStatus = await getRecentLiveStatus(busId);
+      if (liveStatus) {
+        const timeAgo = Math.floor((new Date() - new Date(liveStatus.reported_at)) / 60000);
+        let statusEmoji = liveStatus.status_type === 'delayed' ? '🔴' : (liveStatus.status_type === 'crowded' ? '🟡' : '🟢');
+        let statusText = liveStatus.status_type === 'delayed' ? 'မလာတာကြာနေတယ်' : (liveStatus.status_type === 'crowded' ? 'လူတအားကျပ်နေတယ်' : 'ပုံမှန်လာနေတယ်');
+        reply += `📌 **Live (Bus ${busId}):** ${statusEmoji} ${liveStatus.station_name} မှာ ${statusText} (${timeAgo} မိနစ်က)\n`;
+      }
+    }
+    reply += "----------------------------\n";
+  }
+
+  const reportButtons = displayRoutes[0].buses.map(busId => [
+    { text: `📢 YBS ${busId} အခြေအနေ သတင်းပို့ရန်`, callback_data: `report_${busId}_${fromRaw}` }
+  ]);
+
+  const menuKeyboard = {
+    keyboard: [
+      [{ text: "🚌 လမ်းကြောင်းရှာရန်" }],
+      [{ text: "📍 အနီးနားမှတ်တိုင်များရှာရန်", request_location: true }],
+      [{ text: "❓ အကူအညီရယူရန်" }]
+    ],
+    resize_keyboard: true
+  };
+
+  await send(chatId, reply, {
+    inline_keyboard: reportButtons
+  });
+  
+  await send(chatId, "အထက်ပါ လမ်းကြောင်းများကို အသုံးပြုနိုင်ပါတယ်ဗျာ။", menuKeyboard);
+}
+
 }
 
 // ---------------- HELPERS ----------------
