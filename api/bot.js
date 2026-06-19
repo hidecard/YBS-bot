@@ -7719,23 +7719,17 @@ const BUSES = [
 ];
 
 // ---------------- BOT ----------------
-let isDbInitialized = false;
+import { initDb } from "./db.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(200).send("OK");
 
-  // Initialize DB once
-  if (!isDbInitialized) {
-    try {
-      const { initDb } = await import("./db.js");
-      await initDb();
-      isDbInitialized = true;
-    } catch (err) {
-      console.error("DB Init Error:", err);
-    }
-  }
+  try {
+    // Initialize DB (Safe to call multiple times as it uses CREATE TABLE IF NOT EXISTS)
+    await initDb().catch(err => console.error("DB Init Error:", err));
 
-  const update = await json(req);
+    const update = await json(req);
+    if (!update) return res.status(200).send("OK");
 
   // --- Handle Callback Queries (Crowdsourcing) ---
   if (update.callback_query) {
@@ -7913,15 +7907,19 @@ export default async function handler(req, res) {
     return res.end();
   }
 
-  await send(chatId, "❓ နားမလည်ပါဘူးဗျာ။ အောက်က Menu ခလုတ်တွေကို အသုံးပြုပေးပါဦး။", {
-    keyboard: [
-      [{ text: "🚌 လမ်းကြောင်းရှာရန်" }],
-      [{ text: "📍 အနီးနားမှတ်တိုင်များရှာရန်", request_location: true }],
-      [{ text: "❓ အကူအညီရယူရန်" }]
-    ],
-    resize_keyboard: true
-  });
-  return res.end();
+    await send(chatId, "❓ နားမလည်ပါဘူးဗျာ။ အောက်က Menu ခလုတ်တွေကို အသုံးပြုပေးပါဦး။", {
+      keyboard: [
+        [{ text: "🚌 လမ်းကြောင်းရှာရန်" }],
+        [{ text: "📍 အနီးနားမှတ်တိုင်များရှာရန်", request_location: true }],
+        [{ text: "❓ အကူအညီရယူရန်" }]
+      ],
+      resize_keyboard: true
+    });
+    return res.end();
+  } catch (error) {
+    console.error("Global Handler Error:", error);
+    return res.status(200).send("OK");
+  }
 }
 
 async function handleRouteSearch(chatId, fromRaw, toRaw, res) {
@@ -8000,8 +7998,6 @@ async function handleRouteSearch(chatId, fromRaw, toRaw, res) {
   });
   
   await send(chatId, "အထက်ပါ လမ်းကြောင်းများကို အသုံးပြုနိုင်ပါတယ်ဗျာ။", menuKeyboard);
-}
-
 }
 
 // ---------------- HELPERS ----------------
