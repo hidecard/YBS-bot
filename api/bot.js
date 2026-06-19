@@ -7832,58 +7832,68 @@ or
     setCachedRoute(from, to, routes);
   }
   
-  if (routes.length > 0) {
-    if (routes[0].transfers === 0) {
-      reply += "✅ တစ်ဆင့်တည်း\n";
-      for (const busId of routes[0].buses) {
-        reply += `🚌 Bus ${busId}\n`;
-        // Add Live Status for direct bus
-        const liveStatus = await getRecentLiveStatus(busId);
-        if (liveStatus) {
-          const timeAgo = Math.floor((new Date() - new Date(liveStatus.reported_at)) / 60000);
-          let statusEmoji = liveStatus.status_type === 'delayed' ? '🔴' : (liveStatus.status_type === 'crowded' ? '🟡' : '🟢');
-          let statusText = liveStatus.status_type === 'delayed' ? 'မလာတာကြာနေတယ်' : (liveStatus.status_type === 'crowded' ? 'လူတအားကျပ်နေတယ်' : 'ပုံမှန်လာနေတယ်');
-          reply += `📌 Live သတင်း (${timeAgo} မိနစ်ခန့်က):\n${statusEmoji} *${liveStatus.station_name}* ဂိတ်မှာ ${statusText}လို့ ခရီးသည်တစ်ဦး သတင်းပို့ထားပါတယ်ဗျာ။\n`;
-        }
-      }
-    } else if (routes[0].transfers === 1) {
-      reply += "🔄 နှစ်ဆင့်\n";
-      reply += `🚌 Bus ${routes[0].buses[0]} → လဲလှဲရာနေရာ: ${routes[0].transferPoint}\n`;
-      reply += `🚌 Bus ${routes[0].buses[1]}\n`;
+    if (routes.length > 0) {
+      const bestRoute = routes[0];
       
-      // Add Live Status for both buses
-      for (const busId of routes[0].buses) {
-        const liveStatus = await getRecentLiveStatus(busId);
+      if (bestRoute.transfers === 0) {
+        reply += "✅ **တိုက်ရိုက်စီးရန် (Direct Route)**\n\n";
+        reply += `🚌 **YBS ${bestRoute.buses[0]}** ကို စီးပါ။\n`;
+        reply += `📍 **${fromRaw.trim()}** ဂိတ်မှ တက်ပါ။\n`;
+        reply += `🏁 **${toRaw.trim()}** ဂိတ်တွင် ဆင်းပါ။\n`;
+        
+        const liveStatus = await getRecentLiveStatus(bestRoute.buses[0]);
         if (liveStatus) {
           const timeAgo = Math.floor((new Date() - new Date(liveStatus.reported_at)) / 60000);
           let statusEmoji = liveStatus.status_type === 'delayed' ? '🔴' : (liveStatus.status_type === 'crowded' ? '🟡' : '🟢');
           let statusText = liveStatus.status_type === 'delayed' ? 'မလာတာကြာနေတယ်' : (liveStatus.status_type === 'crowded' ? 'လူတအားကျပ်နေတယ်' : 'ပုံမှန်လာနေတယ်');
-          reply += `\n📌 Live (Bus ${busId}): ${statusEmoji} ${liveStatus.station_name} မှာ ${statusText} (${timeAgo} မိနစ်က)`;
+          reply += `\n📌 **Live သတင်း (${timeAgo} မိနစ်ခန့်က):**\n${statusEmoji} *${liveStatus.station_name}* ဂိတ်မှာ ${statusText}လို့ ခရီးသည်တစ်ဦး သတင်းပို့ထားပါတယ်ဗျာ။\n`;
         }
+      } else if (bestRoute.transfers === 1) {
+        reply += "🔄 **နှစ်ဆင့်စီးရန် (1 Transfer)**\n\n";
+        reply += `1️⃣ **ပထမအဆင့်:**\n`;
+        reply += `🚌 **YBS ${bestRoute.buses[0]}** ကို **${fromRaw.trim()}** မှ စီးပါ။\n`;
+        reply += `🛑 **${bestRoute.transferPoint}** ဂိတ်တွင် ဆင်းပါ။\n\n`;
+        reply += `2️⃣ **ဒုတိယအဆင့်:**\n`;
+        reply += `🚌 **YBS ${bestRoute.buses[1]}** ကို **${bestRoute.transferPoint}** မှ ပြန်စီးပါ။\n`;
+        reply += `🏁 **${toRaw.trim()}** ဂိတ်တွင် ဆင်းပါ။\n`;
+        
+        for (const busId of bestRoute.buses) {
+          const liveStatus = await getRecentLiveStatus(busId);
+          if (liveStatus) {
+            const timeAgo = Math.floor((new Date() - new Date(liveStatus.reported_at)) / 60000);
+            let statusEmoji = liveStatus.status_type === 'delayed' ? '🔴' : (liveStatus.status_type === 'crowded' ? '🟡' : '🟢');
+            let statusText = liveStatus.status_type === 'delayed' ? 'မလာတာကြာနေတယ်' : (liveStatus.status_type === 'crowded' ? 'လူတအားကျပ်နေတယ်' : 'ပုံမှန်လာနေတယ်');
+            reply += `\n📌 **Live (Bus ${busId}):** ${statusEmoji} ${liveStatus.station_name} မှာ ${statusText} (${timeAgo} မိနစ်က)`;
+          }
+        }
+      } else {
+        reply += `🔄 **${bestRoute.transfers + 1} ဆင့်စီးရန် (${bestRoute.transfers} Transfers)**\n\n`;
+        bestRoute.buses.forEach((bus, index) => {
+          if (index === 0) {
+            reply += `${index + 1}️⃣ **YBS ${bus}** ကို **${fromRaw.trim()}** မှ စီးပါ။\n`;
+          } else {
+            reply += `${index + 1}️⃣ **YBS ${bus}** ကို **${bestRoute.transferPoints[index-1]}** မှ စီးပါ။\n`;
+          }
+          
+          if (index < bestRoute.transferPoints.length) {
+            reply += `🛑 **${bestRoute.transferPoints[index]}** တွင် ဆင်းပြီး ကားပြောင်းပါ။\n\n`;
+          } else {
+            reply += `🏁 **${toRaw.trim()}** တွင် ဆင်းပါ။\n`;
+          }
+        });
       }
-    } else {
-      reply += `🔄 ${routes[0].transfers + 1} ဆင့်\n`;
-      routes[0].buses.forEach((bus, index) => {
-        reply += `🚌 Bus ${bus}`;
-        if (index < routes[0].transferPoints.length) {
-          reply += ` → လဲလှဲရာနေရာ: ${routes[0].transferPoints[index]}`;
-        }
-        reply += "\n";
-      });
-    }
 
-    // Add Report Button
-    const reportMarkup = {
-      inline_keyboard: [
-        [
-          { text: "📢 လက်ရှိအခြေအနေ သတင်းပို့ရန်", callback_data: `report_${routes[0].buses[0]}_${fromRaw.trim()}` }
+      const reportMarkup = {
+        inline_keyboard: [
+          [
+            { text: "📢 လက်ရှိအခြေအနေ သတင်းပို့ရန်", callback_data: `report_${bestRoute.buses[0]}_${fromRaw.trim()}` }
+          ]
         ]
-      ]
-    };
+      };
 
-    await send(chatId, reply, reportMarkup);
-    return res.end();
-  }
+      await send(chatId, reply, reportMarkup);
+      return res.end();
+    }
 
   // --- If no route found ---
   reply += "❌ Route မတွေ့ပါ";
@@ -7993,7 +8003,7 @@ function findRoute(from, to) {
       routes.push(...twoTransferRoutes);
     }
     
-    // Sort routes by number of transfers (fewest first), then by number of stops
+    // Sort routes by number of transfers (fewest first), then by total number of buses
     return routes.sort((a, b) => {
       if (a.transfers !== b.transfers) {
         return a.transfers - b.transfers;
