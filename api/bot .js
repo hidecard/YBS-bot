@@ -7788,17 +7788,18 @@ export default async function handler(req, res) {
     const nearbyStops = findNearbyStops(userLat, userLng, 0.5); // 0.5 km radius
 
     if (nearbyStops.length > 0) {
-      let reply = "📍 **အနီးဆုံးမှတ်တိုင်များ (၅၀၀ မီတာအတွင်း):**\n\n";
-      // Show top 5 closest stops
-      const topStops = nearbyStops.slice(0, 5);
-      topStops.forEach(stop => {
-        const dist = haversineDistance(userLat, userLng, stop.lat, stop.lng);
-        const distStr = dist < 1 ? `${Math.round(dist * 1000)}m` : `${dist.toFixed(2)}km`;
-        reply += `**${stop.name}** (${distStr})\n🚌 YBS: ${stop.bus_ids.join(", ")}\n\n`;
+      const closestStop = nearbyStops[0];
+      userSessions.set(chatId, { step: "awaiting_to", from: closestStop.name });
+      
+      let reply = `📍 သင်ဟာ **${closestStop.name}** မှတ်တိုင်နဲ့ အနီးဆုံးမှာ ရှိနေပါတယ်ဗျာ။\n\n`;
+      reply += `ဘယ်မှတ်တိုင်ကို သွားမှာလဲခင်ဗျာ? (မှတ်တိုင်အမည် ရိုက်ပေးပါ)`;
+
+      await send(chatId, reply, {
+        keyboard: [[{ text: "❌ ရှာဖွေမှုရပ်ဆိုင်းရန်" }]],
+        resize_keyboard: true
       });
-      await send(chatId, reply);
     } else {
-      await send(chatId, "❌ သင့်အနီးအနားမှာ မှတ်တိုင် မတွေ့ပါဘူး။");
+      await send(chatId, "❌ သင့်အနီးအနားမှာ မှတ်တိုင် မတွေ့ပါဘူး။ အမည်ရိုက်ပြီး ရှာဖွေနိုင်ပါတယ်ဗျာ။", menuMarkup);
     }
     return res.end();
   }
@@ -7862,47 +7863,21 @@ export default async function handler(req, res) {
   const session = userSessions.get(chatId);
   if (session && session.step === "awaiting_from") {
     const fromRaw = text.trim();
-    const fromNormalized = normalize(fromRaw);
-    const exists = BUSES.some(bus => bus.stops.some(stop => normalize(stop) === fromNormalized));
-
-    if (!exists) {
-      const similar = findSimilarStops(fromRaw, 0.6);
-      if (similar.length > 0) {
-        let suggestionMsg = `❌ "${fromRaw}" မှတ်တိုင်ကို ရှာမတွေ့ပါဘူး။\n\nသင်ရှာနေတာက အောက်က တစ်ခုခုလားဗျာ? (နာမည်အတိအကျ ပြန်ရိုက်ပေးပါ)`;
-        similar.slice(0, 5).forEach(s => suggestionMsg += `\n• ${s.stop}`);
-        await send(chatId, suggestionMsg);
-      } else {
-        await send(chatId, `❌ "${fromRaw}" မှတ်တိုင်ကို ရှာမတွေ့ပါဘူး။ တခြားနာမည်တစ်ခုနဲ့ ပြန်ရိုက်ပေးပါဦး။`);
-      }
-      return res.end();
-    }
-
-    userSessions.set(chatId, { step: "awaiting_to", from: fromRaw });
-    await send(chatId, `✅ စီးမည့်မှတ်တိုင်: **${fromRaw}**\n\n🏁 **ဘယ်မှတ်တိုင်ကို သွားမှာလဲဗျာ?**\n(ဥပမာ - လှည်းတန်း)`);
+    const fromBest = findBestStopName(fromRaw);
+    
+    userSessions.set(chatId, { step: "awaiting_to", from: fromBest });
+    await send(chatId, `✅ စီးမည့်မှတ်တိုင်: **${fromBest}**\n\n🏁 **ဘယ်မှတ်တိုင်ကို သွားမှာလဲဗျာ?**\n(ဥပမာ - လှည်းတန်း)`);
     return res.end();
   }
 
   if (session && session.step === "awaiting_to") {
     const toRaw = text.trim();
-    const toNormalized = normalize(toRaw);
-    const exists = BUSES.some(bus => bus.stops.some(stop => normalize(stop) === toNormalized));
-
-    if (!exists) {
-      const similar = findSimilarStops(toRaw, 0.6);
-      if (similar.length > 0) {
-        let suggestionMsg = `❌ "${toRaw}" မှတ်တိုင်ကို ရှာမတွေ့ပါဘူး။\n\nသင်ရှာနေတာက အောက်က တစ်ခုခုလားဗျာ? (နာမည်အတိအကျ ပြန်ရိုက်ပေးပါ)`;
-        similar.slice(0, 5).forEach(s => suggestionMsg += `\n• ${s.stop}`);
-        await send(chatId, suggestionMsg);
-      } else {
-        await send(chatId, `❌ "${toRaw}" မှတ်တိုင်ကို ရှာမတွေ့ပါဘူး။ တခြားနာမည်တစ်ခုနဲ့ ပြန်ရိုက်ပေးပါဦး။`);
-      }
-      return res.end();
-    }
-
+    const toBest = findBestStopName(toRaw);
     const fromRaw = session.from;
+    
     userSessions.delete(chatId); // Clear session
 
-    await handleRouteSearch(chatId, fromRaw, toRaw, res);
+    await handleRouteSearch(chatId, fromRaw, toBest, res);
     return res.end();
   }
 
@@ -7929,8 +7904,12 @@ export default async function handler(req, res) {
 }
 
 async function handleRouteSearch(chatId, fromRaw, toRaw, res) {
-  const from = normalize(fromRaw);
-  const to = normalize(toRaw);
+  // Find the most accurate stop names from our database
+  const fromBest = findBestStopName(fromRaw);
+  const toBest = findBestStopName(toRaw);
+  
+  const from = normalize(fromBest);
+  const to = normalize(toBest);
 
   let routes = getCachedRoute(from, to);
   if (!routes) {
@@ -7943,7 +7922,11 @@ async function handleRouteSearch(chatId, fromRaw, toRaw, res) {
     return;
   }
 
-  let reply = `📍 **${fromRaw} ➜ ${toRaw}**\n\n`;
+  let reply = `📍 **${fromBest} ➜ ${toBest}**\n`;
+  if (fromBest.toLowerCase() !== fromRaw.toLowerCase() || toBest.toLowerCase() !== toRaw.toLowerCase()) {
+    reply += `(ရှာဖွေမှု: ${fromRaw} ➜ ${toRaw})\n`;
+  }
+  reply += "\n";
   
   // Show top 3 best routes (mix of direct, 1-transfer, 2-transfer)
   const displayRoutes = routes.slice(0, 3);
@@ -7954,12 +7937,12 @@ async function handleRouteSearch(chatId, fromRaw, toRaw, res) {
     
     if (route.transfers === 0) {
       reply += `${emoji} **တိုက်ရိုက်စီးရန် (Direct Route)**\n`;
-      reply += `🚌 **YBS ${route.buses[0]}** ကို စီးပါ။\n\n`;
+      reply += `🚌 **YBS ${route.buses[0]}** ကို **${fromBest}** မှ တိုက်ရိုက်စီးပါ။\n\n`;
     } else {
       reply += `${emoji} **${route.transfers + 1} ဆင့်စီးရန် (${route.transfers} Transfers)**\n`;
       route.buses.forEach((bus, idx) => {
         if (idx === 0) {
-          reply += `${idx + 1}️⃣ **YBS ${bus}** ကို **${fromRaw}** မှ စီးပါ။\n`;
+          reply += `${idx + 1}️⃣ **YBS ${bus}** ကို **${fromBest}** မှ စီးပါ။\n`;
         } else {
           reply += `${idx + 1}️⃣ **YBS ${bus}** ကို **${route.transferPoints[idx-1]}** မှ စီးပါ။\n`;
         }
@@ -8008,16 +7991,19 @@ async function handleRouteSearch(chatId, fromRaw, toRaw, res) {
 
 // ---------------- HELPERS ----------------
 function normalize(text = "") {
+  if (!text) return "";
   return text
     .replace(/\s+/g, "") // Remove all whitespace
-    .replace(/[()]/g, "") // Remove parentheses
+    .replace(/[()\[\]{}]/g, "") // Remove brackets
+    .replace(/မှတ်တိုင်/g, "")
+    .replace(/ဂိတ်/g, "")
     .replace(/[၀-၉]/g, (match) => {
       // Convert Myanmar digits to English digits
       const myanmarToEnglish = {
         '၀': '0', '၁': '1', '၂': '2', '၃': '3', '၄': '4',
         '၅': '5', '၆': '6', '၇': '7', '၈': '8', '၉': '9'
       };
-      return myanmarToEnglish[match] || match;
+      return myanmarToEnglish[match];
     })
     .toLowerCase();
 }
@@ -8040,13 +8026,36 @@ function findSimilarStops(searchTerm, threshold = 0.6) {
 }
 
 function calculateSimilarity(str1, str2) {
+  if (str1 === str2) return 1.0;
   const longer = str1.length > str2.length ? str1 : str2;
   const shorter = str1.length > str2.length ? str2 : str1;
   
   if (longer.length === 0) return 1.0;
   
+  // Substring match is very important for Burmese stop names
+  if (longer.includes(shorter)) {
+    return (shorter.length / longer.length) * 0.8 + 0.2;
+  }
+  
   const editDistance = levenshteinDistance(longer, shorter);
   return (longer.length - editDistance) / longer.length;
+}
+
+function levenshteinDistance(s1, s2) {
+  const matrix = Array.from({ length: s1.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= s2.length; j++) matrix[0][j] = j;
+
+  for (let i = 1; i <= s1.length; i++) {
+    for (let j = 1; j <= s2.length; j++) {
+      const cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,      // deletion
+        matrix[i][j - 1] + 1,      // insertion
+        matrix[i - 1][j - 1] + cost // substitution
+      );
+    }
+  }
+  return matrix[s1.length][s2.length];
 }
 
 // Haversine formula to calculate distance between two lat/lng points
@@ -8151,12 +8160,47 @@ function findRoute(from, to) {
   }
 }
 
+function findBestStopName(searchTerm) {
+  const normalizedSearch = normalize(searchTerm);
+  let bestMatch = searchTerm;
+  let highestSimilarity = 0;
+
+  // Search in STOPS_DATA (which has coordinates)
+  for (const stop of STOPS_DATA) {
+    const similarity = calculateSimilarity(normalizedSearch, normalize(stop.name));
+    if (similarity > highestSimilarity) {
+      highestSimilarity = similarity;
+      bestMatch = stop.name;
+    }
+    if (similarity === 1) break;
+  }
+
+  // If no good match in STOPS_DATA, check BUSES stops
+  if (highestSimilarity < 0.8) {
+    for (const bus of BUSES) {
+      for (const stop of bus.stops) {
+        const similarity = calculateSimilarity(normalizedSearch, normalize(stop));
+        if (similarity > highestSimilarity) {
+          highestSimilarity = similarity;
+          bestMatch = stop;
+        }
+        if (similarity === 1) break;
+      }
+      if (highestSimilarity === 1) break;
+    }
+  }
+
+  return bestMatch;
+}
+
 function findDirectRoutes(from, to) {
   const directBuses = [];
+  const normFrom = normalize(from);
+  const normTo = normalize(to);
   
   for (const bus of BUSES) {
-    const fromIndex = bus.stops.findIndex((s) => normalize(s) === from);
-    const toIndex = bus.stops.findIndex((s) => normalize(s) === to);
+    const fromIndex = bus.stops.findIndex((s) => normalize(s) === normFrom);
+    const toIndex = bus.stops.findIndex((s) => normalize(s) === normTo);
     
     if (fromIndex !== -1 && toIndex !== -1 && fromIndex < toIndex) {
       directBuses.push(bus.id);
