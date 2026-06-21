@@ -1,5 +1,4 @@
 // api/bot.js
-import { json } from "micro";
 import { saveLiveStatus, getRecentLiveStatus } from "./db.js";
 import fs from "fs";
 import path from "path";
@@ -10,14 +9,31 @@ const stopsPath = path.join(process.cwd(), "api", "stops.json");
 const STOPS_DATA = JSON.parse(fs.readFileSync(stopsPath, "utf8"));
 
 // ----- Bot token -----
-const BOT_TOKEN = "8421330750:AAFqmjmoDeGpzJ9mA7OQw10u1665mfS1W08";
+const BOT_TOKEN = process.env.BOT_TOKEN || "8421330750:AAFqmjmoDeGpzJ9mA7OQw10u1665mfS1W08";
 
 // ----- Simple cache for route results -----
 const routeCache = new Map();
 const CACHE_SIZE_LIMIT = 100; // Limit cache size to prevent memory issues
 
 // --- User Session for Step-by-step Input ---
+// NOTE: In serverless environments, this in-memory Map is ephemeral.
+// For production, replace with Redis/DB-backed session storage.
 const userSessions = new Map();
+
+const MENU_MARKUP = {
+  keyboard: [
+    [{ text: "🚌 လမ်းကြောင်းရှာရန်" }],
+    [{ text: "📍 အနီးနားမှတ်တိုင်များရှာရန်", request_location: true }],
+    [{ text: "❓ အကူအညီရယူရန်" }]
+  ],
+  resize_keyboard: true,
+  one_time_keyboard: false
+};
+
+const CANCEL_MARKUP = {
+  keyboard: [[{ text: "❌ ရှာဖွေမှုရပ်ဆိုင်းရန်" }]],
+  resize_keyboard: true
+};
 
 function getCacheKey(from, to) {
   return `${normalize(from)}-${normalize(to)}`;
@@ -7734,23 +7750,23 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Verify bot token before processing requests
+    if (!BOT_TOKEN) {
+      console.error("Missing BOT_TOKEN environment variable.");
+      res.statusCode = 500;
+      return res.end("BOT_TOKEN missing");
+    }
+
     // Initialize DB (Safe to call multiple times as it uses CREATE TABLE IF NOT EXISTS)
     await initDb().catch(err => console.error("DB Init Error:", err));
 
-    const update = await json(req);
+    const update = req.body;
     if (!update) {
       res.statusCode = 200;
       return res.end("OK");
     }
 
-    const menuMarkup = {
-      keyboard: [
-        [{ text: "🚌 လမ်းကြောင်းရှာရန်" }],
-        [{ text: "📍 အနီးနားမှတ်တိုင်များရှာရန်", request_location: true }],
-        [{ text: "❓ အကူအညီရယူရန်" }]
-      ],
-      resize_keyboard: true
-    };
+    const menuMarkup = MENU_MARKUP;
 
   // --- Handle Callback Queries (Crowdsourcing) ---
   if (update.callback_query) {
@@ -7809,10 +7825,7 @@ export default async function handler(req, res) {
       let reply = `📍 သင်ဟာ **${closestStop.name}** မှတ်တိုင်နဲ့ အနီးဆုံးမှာ ရှိနေပါတယ်ဗျာ။\n\n`;
       reply += `ဘယ်မှတ်တိုင်ကို သွားမှာလဲခင်ဗျာ? (မှတ်တိုင်အမည် ရိုက်ပေးပါ)`;
 
-      await send(chatId, reply, {
-        keyboard: [[{ text: "❌ ရှာဖွေမှုရပ်ဆိုင်းရန်" }]],
-        resize_keyboard: true
-      });
+      await send(chatId, reply, CANCEL_MARKUP);
     } else {
       await send(chatId, "❌ သင့်အနီးအနားမှာ မှတ်တိုင် မတွေ့ပါဘူး။ အမည်ရိုက်ပြီး ရှာဖွေနိုင်ပါတယ်ဗျာ။", menuMarkup);
     }
@@ -7840,48 +7853,35 @@ export default async function handler(req, res) {
 3️⃣ **Live သတင်းကြည့်ရန်:** 
 ကားလမ်းကြောင်းရှာတဲ့အခါ အခြားသူတွေ သတင်းပို့ထားတဲ့ လက်ရှိအခြေအနေတွေကိုပါ မြင်တွေ့နိုင်မှာပါ။`;
 
-    const menuMarkup = {
-      keyboard: [
-        [{ text: "🚌 လမ်းကြောင်းရှာရန်" }],
-        [{ text: "📍 အနီးနားမှတ်တိုင်များရှာရန်", request_location: true }],
-        [{ text: "❓ အကူအညီရယူရန်" }]
-      ],
-      resize_keyboard: true,
-      one_time_keyboard: false
-    };
-
-    await send(chatId, welcomeMsg, menuMarkup);
+    await send(chatId, welcomeMsg, MENU_MARKUP);
     return res.end();
   }
 
   if (text === "❓ အကူအညီရယူရန်") {
-    await send(chatId, "💡 လမ်းကြောင်းရှာဖို့အတွက် `🚌 လမ်းကြောင်းရှာရန်` ခလုတ်ကို နှိပ်ပါ။\nဒါမှမဟုတ် `မှတ်တိုင် (က) to မှတ်တိုင် (ခ)` ဆိုတဲ့ format နဲ့ ရိုက်ပေးပါဗျာ။\nဥပမာ - `ဆူးလေ to လှည်းတန်း`", {
-      keyboard: [
-        [{ text: "🚌 လမ်းကြောင်းရှာရန်" }],
-        [{ text: "📍 အနီးနားမှတ်တိုင်များရှာရန်", request_location: true }],
-        [{ text: "❓ အကူအညီရယူရန်" }]
-      ],
-      resize_keyboard: true
-    });
+    await send(chatId, "💡 လမ်းကြောင်းရှာဖို့အတွက် `🚌 လမ်းကြောင်းရှာရန်` ခလုတ်ကို နှိပ်ပါ။\nဒါမှမဟုတ် `မှတ်တိုင် (က) to မှတ်တိုင် (ခ)` ဆိုတဲ့ format နဲ့ ရိုက်ပေးပါဗျာ။\nဥပမာ - `ဆူးလေ to လှည်းတန်း`", MENU_MARKUP);
     return res.end();
   }
 
   // --- Step-by-step Route Input ---
   if (text === "🚌 လမ်းကြောင်းရှာရန်") {
     userSessions.set(chatId, { step: "awaiting_from" });
-    await send(chatId, "📍 **ဘယ်မှတ်တိုင်ကနေ စီးမှာလဲဗျာ?**\n(ဥပမာ - ဆူးလေ)", {
-      reply_markup: { remove_keyboard: true }
-    });
+    await send(chatId, "📍 **ဘယ်မှတ်တိုင်ကနေ စီးမှာလဲဗျာ?**\n(ဥပမာ - ဆူးလေ)", CANCEL_MARKUP);
     return res.end();
   }
 
   const session = userSessions.get(chatId);
+  if (text === "❌ ရှာဖွေမှုရပ်ဆိုင်းရန်") {
+    userSessions.delete(chatId);
+    await send(chatId, "💡 လမ်းကြောင်းရှာဖွေမှုကို ရပ်ဆိုင်းလိုက်ပါပြီ။", MENU_MARKUP);
+    return res.end();
+  }
+
   if (session && session.step === "awaiting_from") {
     const fromRaw = text.trim();
     const fromBest = findBestStopName(fromRaw);
     
     userSessions.set(chatId, { step: "awaiting_to", from: fromBest });
-    await send(chatId, `✅ စီးမည့်မှတ်တိုင်: **${fromBest}**\n\n🏁 **ဘယ်မှတ်တိုင်ကို သွားမှာလဲဗျာ?**\n(ဥပမာ - လှည်းတန်း)`);
+    await send(chatId, `✅ စီးမည့်မှတ်တိုင်: **${fromBest}**\n\n🏁 **ဘယ်မှတ်တိုင်ကို သွားမှာလဲဗျာ?**\n(ဥပမာ - လှည်းတန်း)`, CANCEL_MARKUP);
     return res.end();
   }
 
@@ -7903,15 +7903,8 @@ export default async function handler(req, res) {
     return res.end();
   }
 
-    await send(chatId, "❓ နားမလည်ပါဘူးဗျာ။ အောက်က Menu ခလုတ်တွေကို အသုံးပြုပေးပါဦး။", {
-      keyboard: [
-        [{ text: "🚌 လမ်းကြောင်းရှာရန်" }],
-        [{ text: "📍 အနီးနားမှတ်တိုင်များရှာရန်", request_location: true }],
-        [{ text: "❓ အကူအညီရယူရန်" }]
-      ],
-      resize_keyboard: true
-    });
-    return res.end();
+  await send(chatId, "❓ နားမလည်ပါဘူးဗျာ။ အောက်က Menu ခလုတ်တွေကို အသုံးပြုပေးပါဦး။", MENU_MARKUP);
+  return res.end();
   } catch (error) {
     console.error("Global Handler Error:", error);
     res.statusCode = 200;
@@ -7933,8 +7926,8 @@ async function handleRouteSearch(chatId, fromRaw, toRaw, res) {
     setCachedRoute(from, to, routes);
   }
 
-  if (routes.length === 0) {
-    await send(chatId, `❌ **${fromRaw}** မှ **${toRaw}** သို့ သွားမည့် လမ်းကြောင်း မတွေ့ပါဘူး။`);
+  if (!routes || routes.length === 0) {
+    await send(chatId, `❌ **${fromRaw}** မှ **${toRaw}** သို့ သွားမည့် လမ်းကြောင်း မတွေ့ပါဘူး။`, MENU_MARKUP);
     return;
   }
 
@@ -8149,11 +8142,14 @@ function findRoute(from, to) {
 }
 
 function findBestStopName(searchTerm) {
+  if (!searchTerm || !searchTerm.trim()) {
+    return "";
+  }
+
   const normalizedSearch = normalize(searchTerm);
   let bestMatch = searchTerm;
   let highestSimilarity = 0;
 
-  // Search in STOPS_DATA (which has coordinates)
   for (const stop of STOPS_DATA) {
     const similarity = calculateSimilarity(normalizedSearch, normalize(stop.name));
     if (similarity > highestSimilarity) {
@@ -8163,8 +8159,7 @@ function findBestStopName(searchTerm) {
     if (similarity === 1) break;
   }
 
-  // If no good match in STOPS_DATA, check BUSES stops
-  if (highestSimilarity < 0.8) {
+  if (highestSimilarity < 0.7) {
     for (const bus of BUSES) {
       for (const stop of bus.stops) {
         const similarity = calculateSimilarity(normalizedSearch, normalize(stop));
@@ -8178,7 +8173,7 @@ function findBestStopName(searchTerm) {
     }
   }
 
-  return bestMatch;
+  return highestSimilarity >= 0.4 ? bestMatch : searchTerm;
 }
 
 function findDirectRoutes(from, to) {
