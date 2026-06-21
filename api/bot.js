@@ -7728,14 +7728,29 @@ const BUSES = [
 import { initDb } from "./db.js";
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") return res.status(200).send("OK");
+  if (req.method !== "POST") {
+    res.statusCode = 200;
+    return res.end("OK");
+  }
 
   try {
     // Initialize DB (Safe to call multiple times as it uses CREATE TABLE IF NOT EXISTS)
     await initDb().catch(err => console.error("DB Init Error:", err));
 
     const update = await json(req);
-    if (!update) return res.status(200).send("OK");
+    if (!update) {
+      res.statusCode = 200;
+      return res.end("OK");
+    }
+
+    const menuMarkup = {
+      keyboard: [
+        [{ text: "🚌 လမ်းကြောင်းရှာရန်" }],
+        [{ text: "📍 အနီးနားမှတ်တိုင်များရှာရန်", request_location: true }],
+        [{ text: "❓ အကူအညီရယူရန်" }]
+      ],
+      resize_keyboard: true
+    };
 
   // --- Handle Callback Queries (Crowdsourcing) ---
   if (update.callback_query) {
@@ -7899,7 +7914,8 @@ export default async function handler(req, res) {
     return res.end();
   } catch (error) {
     console.error("Global Handler Error:", error);
-    return res.status(200).send("OK");
+    res.statusCode = 200;
+    return res.end("OK");
   }
 }
 
@@ -8086,34 +8102,6 @@ function findNearbyStops(userLat, userLng, radiusKm) {
     const distB = haversineDistance(userLat, userLng, b.lat, b.lng);
     return distA - distB;
   });
-}
-
-function levenshteinDistance(str1, str2) {
-  const matrix = [];
-  
-  for (let i = 0; i <= str2.length; i++) {
-    matrix[i] = [i];
-  }
-  
-  for (let j = 0; j <= str1.length; j++) {
-    matrix[0][j] = j;
-  }
-  
-  for (let i = 1; i <= str2.length; i++) {
-    for (let j = 1; j <= str1.length; j++) {
-      if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
-        matrix[i][j] = matrix[i - 1][j - 1];
-      } else {
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j - 1] + 1,
-          matrix[i][j - 1] + 1,
-          matrix[i - 1][j] + 1
-        );
-      }
-    }
-  }
-  
-  return matrix[str2.length][str1.length];
 }
 
 function findRoute(from, to) {
