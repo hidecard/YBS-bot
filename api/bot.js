@@ -8106,35 +8106,31 @@ function findRoute(from, to) {
       return routes;
     }
     
-    // Find direct routes (0 transfers)
+    // ---------------------------------------------------------
+    // Step 1 – find direct routes first and return immediately
+    // ---------------------------------------------------------
     const directRoutes = findDirectRoutes(from, to);
-    directRoutes.forEach(busId => {
-      routes.push({
+    if (directRoutes.length > 0) {
+      return directRoutes.map(busId => ({
         buses: [busId],
         transfers: 0,
         transferPoints: []
-      });
-    });
-    
-    // Find routes with 1 transfer
-    const oneTransferRoutes = findOneTransferRoutes(from, to);
-    routes.push(...oneTransferRoutes);
-    
-    // Find routes with 2 transfers
-    const twoTransferRoutes = findTwoTransferRoutes(from, to);
-    routes.push(...twoTransferRoutes);
-    
-    // Ensure routes are found and sorted by number of transfers (fewest first)
-    // If we have direct routes, we might still want to show 1-transfer routes if they are better
-    // But per user request, we prioritize fewest transfers.
-    const sortedRoutes = routes.sort((a, b) => {
-      if (a.transfers !== b.transfers) {
-        return a.transfers - b.transfers;
-      }
-      return a.buses.length - b.buses.length;
-    });
+      }));
+    }
 
-    return sortedRoutes;
+    // ---------------------------------------------------------
+    // Step 2 – only search for one-transfer routes if no direct route
+    // ---------------------------------------------------------
+    const oneTransferRoutes = findOneTransferRoutes(from, to);
+    if (oneTransferRoutes.length > 0) {
+      return oneTransferRoutes.sort((a, b) => a.buses.length - b.buses.length);
+    }
+
+    // ---------------------------------------------------------
+    // Step 3 – only search for two-transfer routes if needed
+    // ---------------------------------------------------------
+    const twoTransferRoutes = findTwoTransferRoutes(from, to);
+    return twoTransferRoutes.sort((a, b) => a.buses.length - b.buses.length);
   } catch (error) {
     console.error('Error in findRoute:', error);
     return [];
@@ -8182,8 +8178,14 @@ function findDirectRoutes(from, to) {
   const normTo = normalize(to);
   
   for (const bus of BUSES) {
-    const fromIndex = bus.stops.findIndex((s) => normalize(s) === normFrom);
-    const toIndex = bus.stops.findIndex((s) => normalize(s) === normTo);
+    const fromIndex = bus.stops.findIndex((s) => {
+      const normStop = normalize(s);
+      return normStop === normFrom || normStop.includes(normFrom);
+    });
+    const toIndex = bus.stops.findIndex((s) => {
+      const normStop = normalize(s);
+      return normStop === normTo || normStop.includes(normTo);
+    });
     
     if (fromIndex !== -1 && toIndex !== -1 && fromIndex < toIndex) {
       directBuses.push(bus.id);
@@ -8195,11 +8197,16 @@ function findDirectRoutes(from, to) {
 
 function findOneTransferRoutes(from, to) {
   const routes = [];
+  const normFrom = normalize(from);
+  const normTo = normalize(to);
   
   // Find buses that go from 'from'
   const fromBuses = [];
   for (const bus of BUSES) {
-    const fromIndex = bus.stops.findIndex((s) => normalize(s) === from);
+    const fromIndex = bus.stops.findIndex((s) => {
+      const normStop = normalize(s);
+      return normStop === normFrom || normStop.includes(normFrom);
+    });
     if (fromIndex !== -1) {
       fromBuses.push({
         id: bus.id,
@@ -8212,7 +8219,10 @@ function findOneTransferRoutes(from, to) {
   // Find buses that go to 'to'
   const toBuses = [];
   for (const bus of BUSES) {
-    const toIndex = bus.stops.findIndex((s) => normalize(s) === to);
+    const toIndex = bus.stops.findIndex((s) => {
+      const normStop = normalize(s);
+      return normStop === normTo || normStop.includes(normTo);
+    });
     if (toIndex !== -1) {
       toBuses.push({
         id: bus.id,
@@ -8250,11 +8260,16 @@ function findOneTransferRoutes(from, to) {
 
 function findTwoTransferRoutes(from, to) {
   const routes = [];
+  const normFrom = normalize(from);
+  const normTo = normalize(to);
   
   // Find buses that go from 'from'
   const fromBuses = [];
   for (const bus of BUSES) {
-    const fromIndex = bus.stops.findIndex((s) => normalize(s) === from);
+    const fromIndex = bus.stops.findIndex((s) => {
+      const normStop = normalize(s);
+      return normStop === normFrom || normStop.includes(normFrom);
+    });
     if (fromIndex !== -1) {
       fromBuses.push({
         id: bus.id,
@@ -8267,7 +8282,10 @@ function findTwoTransferRoutes(from, to) {
   // Find buses that go to 'to'
   const toBuses = [];
   for (const bus of BUSES) {
-    const toIndex = bus.stops.findIndex((s) => normalize(s) === to);
+    const toIndex = bus.stops.findIndex((s) => {
+      const normStop = normalize(s);
+      return normStop === normTo || normStop.includes(normTo);
+    });
     if (toIndex !== -1) {
       toBuses.push({
         id: bus.id,
