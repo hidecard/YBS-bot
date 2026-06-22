@@ -8006,6 +8006,8 @@ function normalize(text = "") {
     .replace(/[()\[\]{}]/g, "") // Remove brackets
     .replace(/မှတ်တိုင်/g, "")
     .replace(/ဂိတ်/g, "")
+    .replace(/လမ်းဆုံ/g, "")
+    .replace(/ဈေး/g, "")
     .replace(/[၀-၉]/g, (match) => {
       // Convert Myanmar digits to English digits
       const myanmarToEnglish = {
@@ -8107,34 +8109,44 @@ function findRoute(from, to) {
     if (!normFrom || !normTo) return [];
 
     // ---------------------------------------------------------
-    // Step 1 – direct routes first and return immediately
+    // Step 1 – direct routes
     // ---------------------------------------------------------
     const directRoutes = findDirectRoutes(normFrom, normTo);
+    const results = [];
+
     if (directRoutes && directRoutes.length > 0) {
-      return directRoutes.map(busId => ({
+      results.push(...directRoutes.map(busId => ({
         buses: [busId],
         transfers: 0,
         transferPoints: []
-      }));
+      })));
     }
 
     // ---------------------------------------------------------
-    // Step 2 – only search one-transfer routes if no direct route
+    // Step 2 – one-transfer routes
     // ---------------------------------------------------------
+    // If we have direct routes, we might still want to see them.
+    // But the user specifically complained about being told to transfer when direct exists.
+    // So we only add transfers if they are "better" or if no direct exists.
+    // However, to be safe and provide options, we'll collect all and sort by transfer count.
+    
     const oneTransferRoutes = findOneTransferRoutes(normFrom, normTo);
     if (oneTransferRoutes && oneTransferRoutes.length > 0) {
-      return oneTransferRoutes.sort((a, b) => a.buses.length - b.buses.length);
+      results.push(...oneTransferRoutes);
     }
 
     // ---------------------------------------------------------
-    // Step 3 – only search two-transfer routes if needed
+    // Step 3 – two-transfer routes
     // ---------------------------------------------------------
-    const twoTransferRoutes = findTwoTransferRoutes(normFrom, normTo);
-    if (twoTransferRoutes && twoTransferRoutes.length > 0) {
-      return twoTransferRoutes.sort((a, b) => a.buses.length - b.buses.length);
+    if (results.length < 3) {
+      const twoTransferRoutes = findTwoTransferRoutes(normFrom, normTo);
+      if (twoTransferRoutes && twoTransferRoutes.length > 0) {
+        results.push(...twoTransferRoutes);
+      }
     }
 
-    return [];
+    // Sort by number of transfers (0 first, then 1, then 2)
+    return results.sort((a, b) => a.transfers - b.transfers);
   } catch (error) {
     console.error('Error in findRoute Algorithm:', error);
     return [];
@@ -8182,16 +8194,33 @@ function findDirectRoutes(from, to) {
   const normTo = normalize(to);
   
   for (const bus of BUSES) {
-    const fromIndex = bus.stops.findIndex((s) => {
+    // Find all occurrences of from and to stops (some buses might loop or have same names)
+    const fromIndices = [];
+    const toIndices = [];
+    
+    bus.stops.forEach((s, idx) => {
       const name = normalize(getStopName(s));
-      return name === normFrom || name.includes(normFrom);
-    });
-    const toIndex = bus.stops.findIndex((s) => {
-      const name = normalize(getStopName(s));
-      return name === normTo || name.includes(normTo);
+      if (name === normFrom || name.includes(normFrom) || normFrom.includes(name)) {
+        fromIndices.push(idx);
+      }
+      if (name === normTo || name.includes(normTo) || normTo.includes(name)) {
+        toIndices.push(idx);
+      }
     });
     
-    if (fromIndex !== -1 && toIndex !== -1 && fromIndex < toIndex) {
+    // Check if any 'from' stop comes before any 'to' stop
+    let found = false;
+    for (const fIdx of fromIndices) {
+      for (const tIdx of toIndices) {
+        if (fIdx < tIdx) {
+          found = true;
+          break;
+        }
+      }
+      if (found) break;
+    }
+
+    if (found) {
       directBuses.push(bus.id);
     }
   }
@@ -8250,7 +8279,11 @@ function findOneTransferRoutes(from, to) {
       // Find common stops after fromIndex and before toIndex
       for (let i = fromBus.fromIndex + 1; i < fromBus.stops.length; i++) {
         const commonStop = fromBus.stops[i];
-        const commonIndexInToBus = toBus.stops.findIndex((s) => normalize(s) === normalize(commonStop));
+        const normCommon = normalize(getStopName(commonStop));
+        const commonIndexInToBus = toBus.stops.findIndex((s) => {
+          const name = normalize(getStopName(s));
+          return name === normCommon || name.includes(normCommon) || normCommon.includes(name);
+        });
         
         if (commonIndexInToBus !== -1 && commonIndexInToBus < toBus.toIndex) {
           routes.push({
@@ -8318,11 +8351,15 @@ function findTwoTransferRoutes(from, to) {
         if (firstTransferIndexInIntermediate !== -1) {
           // Find second transfer point (intermediateBus to toBus)
           for (const toBus of toBuses) {
-            if (toBus.id === intermediateBus.id) continue;
+            if (toBus.id === intermediateBus.id || toBus.id === fromBus.id) continue;
             
             for (let j = firstTransferIndexInIntermediate + 1; j < intermediateBus.stops.length; j++) {
               const secondTransfer = intermediateBus.stops[j];
-              const secondTransferIndexInToBus = toBus.stops.findIndex((s) => normalize(s) === normalize(secondTransfer));
+              const normSecond = normalize(getStopName(secondTransfer));
+              const secondTransferIndexInToBus = toBus.stops.findIndex((s) => {
+                const name = normalize(getStopName(s));
+                return name === normSecond || name.includes(normSecond) || normSecond.includes(name);
+              });
               
               if (secondTransferIndexInToBus !== -1 && secondTransferIndexInToBus < toBus.toIndex) {
                 routes.push({
